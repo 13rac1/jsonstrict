@@ -33,6 +33,13 @@ JSON value is preserved for inspection or further decoding.
 
 The target must be a non-nil pointer to a struct.
 
+## Performance
+
+The JSON input is parsed twice: once to identify unknown and missing keys,
+then again to populate the struct. This means ~2x the memory usage and CPU
+of a plain `json.Unmarshal`. Callers processing large payloads should bound
+input size before calling `Unmarshal`.
+
 ## License
 
 Apache 2.0
