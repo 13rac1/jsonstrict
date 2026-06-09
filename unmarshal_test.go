@@ -61,64 +61,104 @@ type ptrEmbeddedParent struct {
 
 func TestUnmarshal_NoUnknownFields(t *testing.T) {
 	var v testStruct
-	unknown, err := jsonstrict.Unmarshal([]byte(`{"name":"alice","value":42}`), &v)
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"alice","value":42}`), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if v.Name != "alice" || v.Value != 42 {
 		t.Errorf("decode wrong: got %+v", v)
 	}
-	if len(unknown) != 0 {
-		t.Errorf("expected no unknown fields, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("expected no unknown fields, got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
 	}
 }
 
 func TestUnmarshal_UnknownFields(t *testing.T) {
 	var v testStruct
-	unknown, err := jsonstrict.Unmarshal([]byte(`{"name":"bob","value":1,"extra":"x"}`), &v)
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"bob","value":1,"extra":"x"}`), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if v.Name != "bob" {
 		t.Errorf("decode wrong: got %+v", v)
 	}
-	if !slices.Equal(unknown, []string{"extra"}) {
-		t.Errorf("expected [extra], got %v", unknown)
+	if !slices.Equal(result.Unknown, []string{"extra"}) {
+		t.Errorf("expected [extra], got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
 	}
 }
 
 func TestUnmarshal_MultipleUnknownFields(t *testing.T) {
 	var v testStruct
 	data := `{"name":"c","value":0,"a":"1","b":"2","c":"3"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(unknown, []string{"a", "b", "c"}) {
-		t.Errorf("expected [a b c], got %v", unknown)
+	if !slices.Equal(result.Unknown, []string{"a", "b", "c"}) {
+		t.Errorf("expected [a b c], got %v", result.Unknown)
+	}
+}
+
+func TestUnmarshal_MissingFields(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"alice"}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Name != "alice" {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+	if len(result.Unknown) != 0 {
+		t.Errorf("expected no unknown fields, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"value"}) {
+		t.Errorf("expected [value], got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_AllFieldsMissing(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Missing, []string{"name", "value"}) {
+		t.Errorf("expected [name value], got %v", result.Missing)
 	}
 }
 
 func TestUnmarshal_InvalidJSON(t *testing.T) {
 	var v testStruct
-	unknown, err := jsonstrict.Unmarshal([]byte(`not json`), &v)
+	result, err := jsonstrict.Unmarshal([]byte(`not json`), &v)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
-	if len(unknown) != 0 {
-		t.Errorf("should not report unknown fields on invalid JSON, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("should not report unknown fields on invalid JSON, got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("should not report missing fields on invalid JSON, got %v", result.Missing)
 	}
 }
 
 func TestUnmarshal_EmbeddedStruct(t *testing.T) {
 	var v embeddedParent
 	data := `{"inner_field":"i","outer":"o"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(unknown) != 0 {
-		t.Errorf("embedded fields should be known, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("embedded fields should be known, got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
 	}
 	if v.InnerField != "i" || v.Outer != "o" {
 		t.Errorf("decode wrong: got %+v", v)
@@ -130,36 +170,36 @@ func TestUnmarshal_DashExcluded(t *testing.T) {
 	// "Hidden" is the Go field name, which would be the fallback if not tagged "-".
 	// Since it IS tagged "-", "Hidden" in JSON should be unknown.
 	data := `{"visible":"v","Hidden":"h"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(unknown, []string{"Hidden"}) {
-		t.Errorf("expected [Hidden], got %v", unknown)
+	if !slices.Equal(result.Unknown, []string{"Hidden"}) {
+		t.Errorf("expected [Hidden], got %v", result.Unknown)
 	}
 }
 
 func TestUnmarshal_OmitemptyStripped(t *testing.T) {
 	var v omitemptyStruct
 	data := `{"field":"val"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(unknown) != 0 {
-		t.Errorf("field with omitempty should be known, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("field with omitempty should be known, got %v", result.Unknown)
 	}
 }
 
 func TestUnmarshal_UntaggedField(t *testing.T) {
 	var v untaggedStruct
 	data := `{"GoName":"val"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(unknown) != 0 {
-		t.Errorf("untagged field should use Go name, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("untagged field should use Go name, got %v", result.Unknown)
 	}
 	if v.GoName != "val" {
 		t.Errorf("decode wrong: got %+v", v)
@@ -171,24 +211,24 @@ func TestUnmarshal_UnexportedFieldIsUnknown(t *testing.T) {
 	// "secret" matches the unexported field name, but encoding/json ignores
 	// unexported fields, so it should be reported as unknown.
 	data := `{"visible":"v","secret":"s"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(unknown, []string{"secret"}) {
-		t.Errorf("expected [secret], got %v", unknown)
+	if !slices.Equal(result.Unknown, []string{"secret"}) {
+		t.Errorf("expected [secret], got %v", result.Unknown)
 	}
 }
 
 func TestUnmarshal_PtrEmbeddedStruct(t *testing.T) {
 	var v ptrEmbeddedParent
 	data := `{"deep":"d","top":"t"}`
-	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(unknown) != 0 {
-		t.Errorf("ptr-embedded fields should be known, got %v", unknown)
+	if len(result.Unknown) != 0 {
+		t.Errorf("ptr-embedded fields should be known, got %v", result.Unknown)
 	}
 	if v.Deep != "d" || v.Top != "t" {
 		t.Errorf("decode wrong: got %+v", v)
@@ -201,12 +241,12 @@ func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 
 	// Each call must independently report unknown fields (no dedup).
 	for i := range 3 {
-		unknown, err := jsonstrict.Unmarshal(data, &v)
+		result, err := jsonstrict.Unmarshal(data, &v)
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		if !slices.Equal(unknown, []string{"extra"}) {
-			t.Errorf("call %d: expected [extra], got %v", i, unknown)
+		if !slices.Equal(result.Unknown, []string{"extra"}) {
+			t.Errorf("call %d: expected [extra], got %v", i, result.Unknown)
 		}
 	}
 }

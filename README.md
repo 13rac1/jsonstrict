@@ -1,7 +1,7 @@
 # jsonstrict
 
 Go package that unmarshals JSON like `encoding/json`, but also reports unknown
-fields. Unknown fields never cause an error — callers decide what to do.
+and missing fields. Neither causes an error — callers decide what to do.
 
 ## Install
 
@@ -13,12 +13,15 @@ go get github.com/13rac1/jsonstrict
 
 ```go
 var config Config
-unknownFields, err := jsonstrict.Unmarshal(data, &config)
+result, err := jsonstrict.Unmarshal(data, &config)
 if err != nil {
     return err
 }
-if len(unknownFields) > 0 {
-    log.Printf("unexpected fields: %v", unknownFields)
+if len(result.Unknown) > 0 {
+    log.Printf("unexpected fields: %v", result.Unknown)
+}
+if len(result.Missing) > 0 {
+    log.Printf("missing fields: %v", result.Missing)
 }
 ```
 

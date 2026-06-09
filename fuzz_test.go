@@ -25,7 +25,7 @@ func FuzzUnmarshal(f *testing.F) {
 
 	f.Fuzz(func(_ *testing.T, data []byte) {
 		var target fuzzTarget
-		//nolint:errcheck,gosec // fuzz: errors from arbitrary input are expected
-		jsonstrict.Unmarshal(data, &target)
+		//nolint:errcheck // fuzz: errors from arbitrary input are expected
+		_, _ = jsonstrict.Unmarshal(data, &target)
 	})
 }
