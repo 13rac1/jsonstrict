@@ -8,8 +8,13 @@
 // If you only need to reject unknown fields without knowing which ones,
 // use json.Decoder.DisallowUnknownFields from the standard library instead.
 //
-// Returned unknown field names are untrusted, attacker-controlled strings
-// from the JSON input. Callers should sanitize them before logging or
+// Key matching is case-sensitive, unlike encoding/json which matches
+// case-insensitively. A JSON key "Name" for a field tagged json:"name"
+// is reported as unknown even though encoding/json populates the struct
+// from it. This is intentional — strict means exact match only.
+//
+// Returned unknown field names and values are untrusted, attacker-controlled
+// data from the JSON input. Callers should sanitize them before logging or
 // including in error responses.
 //
 // Note: encoding/json has complex rules for resolving conflicting field names
@@ -27,14 +32,14 @@ import (
 
 // Result holds the field-level diagnostics from Unmarshal.
 type Result struct {
-	Unknown []string // JSON keys not matching any struct field
-	Missing []string // struct fields not present in JSON
+	Unknown map[string]json.RawMessage // unknown JSON keys → raw values
+	Missing []string                   // struct fields not present in JSON
 }
 
 // Unmarshal unmarshals data into v and returns a Result indicating which JSON
-// keys were unknown and which struct fields were missing from the input.
-// Neither unknown nor missing fields cause an error — only the normal
-// json.Unmarshal error (if any) is returned.
+// keys were unknown (with their raw values) and which struct fields were
+// missing from the input. Neither unknown nor missing fields cause an error —
+// only the normal json.Unmarshal error (if any) is returned.
 //
 // v must be a non-nil pointer to a struct; any other value returns a
 // *json.InvalidUnmarshalError.
@@ -57,9 +62,12 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	var raw map[string]json.RawMessage
 	if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
 		known := knownJSONKeys(rt)
-		for key := range raw {
+		for key, val := range raw {
 			if _, ok := known[key]; !ok {
-				result.Unknown = append(result.Unknown, key)
+				if result.Unknown == nil {
+					result.Unknown = make(map[string]json.RawMessage)
+				}
+				result.Unknown[key] = val
 			}
 		}
 		for key := range known {
@@ -67,7 +75,6 @@ func Unmarshal(data []byte, v any) (Result, error) {
 				result.Missing = append(result.Missing, key)
 			}
 		}
-		sort.Strings(result.Unknown)
 		sort.Strings(result.Missing)
 	}
 

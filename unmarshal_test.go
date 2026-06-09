@@ -85,8 +85,11 @@ func TestUnmarshal_UnknownFields(t *testing.T) {
 	if v.Name != "bob" {
 		t.Errorf("decode wrong: got %+v", v)
 	}
-	if !slices.Equal(result.Unknown, []string{"extra"}) {
-		t.Errorf("expected [extra], got %v", result.Unknown)
+	if len(result.Unknown) != 1 {
+		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
+	}
+	if string(result.Unknown["extra"]) != `"x"` {
+		t.Errorf("expected raw value '\"x\"', got %s", result.Unknown["extra"])
 	}
 	if len(result.Missing) != 0 {
 		t.Errorf("expected no missing fields, got %v", result.Missing)
@@ -100,8 +103,31 @@ func TestUnmarshal_MultipleUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Unknown, []string{"a", "b", "c"}) {
-		t.Errorf("expected [a b c], got %v", result.Unknown)
+	if len(result.Unknown) != 3 {
+		t.Fatalf("expected 3 unknown fields, got %d", len(result.Unknown))
+	}
+	for _, key := range []string{"a", "b", "c"} {
+		if _, ok := result.Unknown[key]; !ok {
+			t.Errorf("expected unknown field %q", key)
+		}
+	}
+}
+
+func TestUnmarshal_UnknownFieldValues(t *testing.T) {
+	var v testStruct
+	data := `{"name":"a","value":1,"num":42,"obj":{"nested":true},"arr":[1,2]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result.Unknown["num"]) != "42" {
+		t.Errorf("expected raw 42, got %s", result.Unknown["num"])
+	}
+	if string(result.Unknown["obj"]) != `{"nested":true}` {
+		t.Errorf("expected raw object, got %s", result.Unknown["obj"])
+	}
+	if string(result.Unknown["arr"]) != `[1,2]` {
+		t.Errorf("expected raw array, got %s", result.Unknown["arr"])
 	}
 }
 
@@ -174,8 +200,11 @@ func TestUnmarshal_DashExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Unknown, []string{"Hidden"}) {
-		t.Errorf("expected [Hidden], got %v", result.Unknown)
+	if len(result.Unknown) != 1 {
+		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
+	}
+	if _, ok := result.Unknown["Hidden"]; !ok {
+		t.Errorf("expected unknown field 'Hidden', got %v", result.Unknown)
 	}
 }
 
@@ -215,8 +244,11 @@ func TestUnmarshal_UnexportedFieldIsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Unknown, []string{"secret"}) {
-		t.Errorf("expected [secret], got %v", result.Unknown)
+	if len(result.Unknown) != 1 {
+		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
+	}
+	if _, ok := result.Unknown["secret"]; !ok {
+		t.Errorf("expected unknown field 'secret', got %v", result.Unknown)
 	}
 }
 
@@ -245,8 +277,11 @@ func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		if !slices.Equal(result.Unknown, []string{"extra"}) {
-			t.Errorf("call %d: expected [extra], got %v", i, result.Unknown)
+		if len(result.Unknown) != 1 {
+			t.Errorf("call %d: expected 1 unknown field, got %d", i, len(result.Unknown))
+		}
+		if _, ok := result.Unknown["extra"]; !ok {
+			t.Errorf("call %d: expected unknown field 'extra', got %v", i, result.Unknown)
 		}
 	}
 }

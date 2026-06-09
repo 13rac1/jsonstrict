@@ -20,13 +20,16 @@ result, err := jsonstrict.Unmarshal(data, &config)
 if err != nil {
     return err
 }
-if len(result.Unknown) > 0 {
-    log.Printf("unexpected fields: %v", result.Unknown)
+for key, raw := range result.Unknown {
+    log.Printf("unexpected field %s: %s", key, raw)
 }
 if len(result.Missing) > 0 {
     log.Printf("missing fields: %v", result.Missing)
 }
 ```
+
+`result.Unknown` is a `map[string]json.RawMessage` — each unknown field's raw
+JSON value is preserved for inspection or further decoding.
 
 The target must be a non-nil pointer to a struct.
 
