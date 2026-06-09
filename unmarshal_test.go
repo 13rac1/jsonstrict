@@ -1,6 +1,8 @@
 package jsonstrict_test
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 
@@ -39,6 +41,12 @@ type untaggedStruct struct {
 	GoName string
 }
 
+// unexportedStruct has an unexported field that encoding/json ignores.
+type unexportedStruct struct {
+	Visible string `json:"visible"`
+	secret  string //nolint:unused // intentionally unexported for testing
+}
+
 // PtrEmbeddedInner is the target for pointer-embedded struct tests.
 // Exported because encoding/json requires embedded pointer targets to be
 // exported when used from external test packages.
@@ -74,8 +82,8 @@ func TestUnmarshal_UnknownFields(t *testing.T) {
 	if v.Name != "bob" {
 		t.Errorf("decode wrong: got %+v", v)
 	}
-	if !slices.Contains(unknown, "extra") {
-		t.Errorf("unknown fields should contain 'extra', got %v", unknown)
+	if !slices.Equal(unknown, []string{"extra"}) {
+		t.Errorf("expected [extra], got %v", unknown)
 	}
 }
 
@@ -86,12 +94,8 @@ func TestUnmarshal_MultipleUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(unknown) != 3 {
-		t.Errorf("expected 3 unknown fields, got %d: %v", len(unknown), unknown)
-	}
-	// Must be sorted.
-	if !slices.IsSorted(unknown) {
-		t.Errorf("unknown fields should be sorted, got %v", unknown)
+	if !slices.Equal(unknown, []string{"a", "b", "c"}) {
+		t.Errorf("expected [a b c], got %v", unknown)
 	}
 }
 
@@ -130,8 +134,8 @@ func TestUnmarshal_DashExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Contains(unknown, "Hidden") {
-		t.Errorf("json:\"-\" field should be unknown, got %v", unknown)
+	if !slices.Equal(unknown, []string{"Hidden"}) {
+		t.Errorf("expected [Hidden], got %v", unknown)
 	}
 }
 
@@ -162,6 +166,20 @@ func TestUnmarshal_UntaggedField(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_UnexportedFieldIsUnknown(t *testing.T) {
+	var v unexportedStruct
+	// "secret" matches the unexported field name, but encoding/json ignores
+	// unexported fields, so it should be reported as unknown.
+	data := `{"visible":"v","secret":"s"}`
+	unknown, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(unknown, []string{"secret"}) {
+		t.Errorf("expected [secret], got %v", unknown)
+	}
+}
+
 func TestUnmarshal_PtrEmbeddedStruct(t *testing.T) {
 	var v ptrEmbeddedParent
 	data := `{"deep":"d","top":"t"}`
@@ -187,8 +205,43 @@ func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		if !slices.Contains(unknown, "extra") {
-			t.Errorf("call %d: expected 'extra' in unknown fields, got %v", i, unknown)
+		if !slices.Equal(unknown, []string{"extra"}) {
+			t.Errorf("call %d: expected [extra], got %v", i, unknown)
 		}
+	}
+}
+
+func TestUnmarshal_NilReturnsError(t *testing.T) {
+	_, err := jsonstrict.Unmarshal([]byte(`{}`), nil)
+	if err == nil {
+		t.Fatal("expected error for nil v")
+	}
+	var target *json.InvalidUnmarshalError
+	if !errors.As(err, &target) {
+		t.Errorf("expected *json.InvalidUnmarshalError, got %T: %v", err, err)
+	}
+}
+
+func TestUnmarshal_NonPointerReturnsError(t *testing.T) {
+	var v testStruct
+	_, err := jsonstrict.Unmarshal([]byte(`{}`), v)
+	if err == nil {
+		t.Fatal("expected error for non-pointer v")
+	}
+	var target *json.InvalidUnmarshalError
+	if !errors.As(err, &target) {
+		t.Errorf("expected *json.InvalidUnmarshalError, got %T: %v", err, err)
+	}
+}
+
+func TestUnmarshal_NonStructPointerReturnsError(t *testing.T) {
+	v := new(int)
+	_, err := jsonstrict.Unmarshal([]byte(`{}`), v)
+	if err == nil {
+		t.Fatal("expected error for non-struct pointer v")
+	}
+	var target *json.InvalidUnmarshalError
+	if !errors.As(err, &target) {
+		t.Errorf("expected *json.InvalidUnmarshalError, got %T: %v", err, err)
 	}
 }
