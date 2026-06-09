@@ -3,7 +3,7 @@ package jsonstrict_test
 import (
 	"testing"
 
-	"github.com/13rac1/teep/internal/jsonstrict"
+	"github.com/13rac1/jsonstrict"
 )
 
 // fuzzTarget is a minimal struct for exercising Unmarshal.

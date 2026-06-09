@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/13rac1/teep/internal/jsonstrict"
+	"github.com/13rac1/jsonstrict"
 )
 
 // testStruct is the target for most tests.

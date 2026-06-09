@@ -1,9 +1,8 @@
 // Package jsonstrict provides JSON unmarshaling that detects unknown fields.
 //
-// Standard encoding/json silently ignores unknown JSON keys. For security-critical
-// payloads like TEE attestation responses, silent drops mean API format changes
-// go unnoticed. Unmarshal returns the names of unknown fields alongside the
-// decoded value, letting callers decide how to handle format drift.
+// Standard encoding/json silently ignores unknown JSON keys. This package
+// returns the names of unknown fields alongside the decoded value, letting
+// callers decide how to handle unexpected data.
 package jsonstrict
 
 import (
