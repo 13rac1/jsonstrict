@@ -23,8 +23,9 @@ func FuzzUnmarshal(f *testing.F) {
 	f.Add([]byte(`not json`))
 	f.Add([]byte(`{"name":null,"value":"not_int"}`))
 
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var target fuzzTarget
-		_, _ = jsonstrict.Unmarshal(data, &target)
+		//nolint:errcheck,gosec // fuzz: errors from arbitrary input are expected
+		jsonstrict.Unmarshal(data, &target)
 	})
 }

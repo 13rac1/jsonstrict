@@ -183,7 +183,10 @@ func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 
 	// Each call must independently report unknown fields (no dedup).
 	for i := range 3 {
-		unknown, _ := jsonstrict.Unmarshal(data, &v)
+		unknown, err := jsonstrict.Unmarshal(data, &v)
+		if err != nil {
+			t.Fatalf("call %d: unexpected error: %v", i, err)
+		}
 		if !slices.Contains(unknown, "extra") {
 			t.Errorf("call %d: expected 'extra' in unknown fields, got %v", i, unknown)
 		}
