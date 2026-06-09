@@ -5,6 +5,9 @@
 // report absent ones. This package returns both alongside the decoded value,
 // letting callers decide how to handle unexpected or incomplete data.
 //
+// If you only need to reject unknown fields without knowing which ones,
+// use json.Decoder.DisallowUnknownFields from the standard library instead.
+//
 // Returned unknown field names are untrusted, attacker-controlled strings
 // from the JSON input. Callers should sanitize them before logging or
 // including in error responses.
@@ -71,19 +74,13 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	return result, json.Unmarshal(data, v)
 }
 
-// knownJSONKeys returns the set of JSON field names declared by t's struct tags.
-func knownJSONKeys(t reflect.Type) map[string]struct{} {
-	keys := make(map[string]struct{})
-	collectJSONKeys(t, keys)
-	return keys
-}
-
-// collectJSONKeys recurses into t's fields and adds their JSON names to keys.
-// It recurses into anonymous (embedded) struct fields. Unexported and
+// knownJSONKeys returns the set of JSON field names declared by t's struct
+// tags. It recurses into anonymous (embedded) struct fields. Unexported and
 // json:"-" fields are excluded. Tag options (e.g. ",omitempty") are stripped.
 // Untagged exported fields fall back to the Go field name, matching
 // encoding/json behavior.
-func collectJSONKeys(t reflect.Type, keys map[string]struct{}) {
+func knownJSONKeys(t reflect.Type) map[string]struct{} {
+	keys := make(map[string]struct{})
 	for i := range t.NumField() {
 		field := t.Field(i)
 
@@ -93,7 +90,9 @@ func collectJSONKeys(t reflect.Type, keys map[string]struct{}) {
 				ft = ft.Elem()
 			}
 			if ft.Kind() == reflect.Struct {
-				collectJSONKeys(ft, keys)
+				for k := range knownJSONKeys(ft) {
+					keys[k] = struct{}{}
+				}
 				continue
 			}
 		}
@@ -112,4 +111,5 @@ func collectJSONKeys(t reflect.Type, keys map[string]struct{}) {
 		}
 		keys[name] = struct{}{}
 	}
+	return keys
 }

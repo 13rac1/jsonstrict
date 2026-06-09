@@ -3,6 +3,9 @@
 Go package that unmarshals JSON like `encoding/json`, but also reports unknown
 and missing fields. Neither causes an error — callers decide what to do.
 
+If you only need to reject unknown fields without knowing which ones,
+use `json.Decoder.DisallowUnknownFields` from the standard library instead.
+
 ## Install
 
 ```
@@ -25,7 +28,7 @@ if len(result.Missing) > 0 {
 }
 ```
 
-`v` must be a non-nil pointer to a struct.
+The target must be a non-nil pointer to a struct.
 
 ## License
 
