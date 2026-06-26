@@ -25,6 +25,7 @@ package jsonstrict
 
 import (
 	"encoding/json"
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -33,7 +34,7 @@ import (
 // Result holds the field-level diagnostics from Unmarshal.
 type Result struct {
 	Unknown map[string]json.RawMessage // unknown JSON keys → raw values
-	Missing []string                   // struct fields not present in JSON
+	Missing []string                   // struct fields not present in JSON, sorted
 }
 
 // Unmarshal unmarshals data into v and returns a Result indicating which JSON
@@ -61,16 +62,18 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	var result Result
 	var raw map[string]json.RawMessage
 	if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
-		known := knownJSONKeys(rt)
+		required, optional := knownJSONKeys(rt)
 		for key, val := range raw {
-			if _, ok := known[key]; !ok {
+			_, inRequired := required[key]
+			_, inOptional := optional[key]
+			if !inRequired && !inOptional {
 				if result.Unknown == nil {
 					result.Unknown = make(map[string]json.RawMessage)
 				}
 				result.Unknown[key] = val
 			}
 		}
-		for key := range known {
+		for key := range required {
 			if _, ok := raw[key]; !ok {
 				result.Missing = append(result.Missing, key)
 			}
@@ -81,13 +84,14 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	return result, json.Unmarshal(data, v)
 }
 
-// knownJSONKeys returns the set of JSON field names declared by t's struct
-// tags. It recurses into anonymous (embedded) struct fields. Unexported and
-// json:"-" fields are excluded. Tag options (e.g. ",omitempty") are stripped.
-// Untagged exported fields fall back to the Go field name, matching
-// encoding/json behavior.
-func knownJSONKeys(t reflect.Type) map[string]struct{} {
-	keys := make(map[string]struct{})
+// knownJSONKeys returns two sets of JSON field names declared by t's struct
+// tags: required fields and optional fields. Fields tagged with omitempty are
+// optional. It recurses into anonymous (embedded) struct fields. Unexported
+// and json:"-" fields are excluded. Untagged exported fields fall back to the
+// Go field name, matching encoding/json behavior.
+func knownJSONKeys(t reflect.Type) (required, optional map[string]struct{}) {
+	required = make(map[string]struct{})
+	optional = make(map[string]struct{})
 	for i := range t.NumField() {
 		field := t.Field(i)
 
@@ -97,9 +101,9 @@ func knownJSONKeys(t reflect.Type) map[string]struct{} {
 				ft = ft.Elem()
 			}
 			if ft.Kind() == reflect.Struct {
-				for k := range knownJSONKeys(ft) {
-					keys[k] = struct{}{}
-				}
+				r, o := knownJSONKeys(ft)
+				maps.Copy(required, r)
+				maps.Copy(optional, o)
 				continue
 			}
 		}
@@ -112,11 +116,15 @@ func knownJSONKeys(t reflect.Type) map[string]struct{} {
 		if tag == "-" {
 			continue
 		}
-		name, _, _ := strings.Cut(tag, ",")
+		name, opts, _ := strings.Cut(tag, ",")
 		if name == "" {
 			name = field.Name
 		}
-		keys[name] = struct{}{}
+		if strings.Contains(opts, "omitempty") {
+			optional[name] = struct{}{}
+		} else {
+			required[name] = struct{}{}
+		}
 	}
-	return keys
+	return required, optional
 }

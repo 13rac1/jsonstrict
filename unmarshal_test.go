@@ -208,7 +208,7 @@ func TestUnmarshal_DashExcluded(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_OmitemptyStripped(t *testing.T) {
+func TestUnmarshal_OmitemptyKnown(t *testing.T) {
 	var v omitemptyStruct
 	data := `{"field":"val"}`
 	result, err := jsonstrict.Unmarshal([]byte(data), &v)
@@ -217,6 +217,17 @@ func TestUnmarshal_OmitemptyStripped(t *testing.T) {
 	}
 	if len(result.Unknown) != 0 {
 		t.Errorf("field with omitempty should be known, got %v", result.Unknown)
+	}
+}
+
+func TestUnmarshal_OmitemptyNotMissing(t *testing.T) {
+	var v omitemptyStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("omitempty field should not be missing, got %v", result.Missing)
 	}
 }
 

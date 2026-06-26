@@ -31,6 +31,8 @@ if len(result.Missing) > 0 {
 `result.Unknown` is a `map[string]json.RawMessage` — each unknown field's raw
 JSON value is preserved for inspection or further decoding.
 
+Fields tagged with `omitempty` are not reported as missing.
+
 The target must be a non-nil pointer to a struct.
 
 ## Performance
