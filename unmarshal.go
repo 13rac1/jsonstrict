@@ -40,6 +40,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -51,6 +52,53 @@ type Result struct {
 	// Missing lists the paths of required struct fields absent from the
 	// JSON, sorted lexicographically.
 	Missing []string
+}
+
+// Err returns a *ResultError describing the unknown and missing fields, or
+// nil if there are none. It is a convenience for callers who want hard
+// strictness:
+//
+//	result, err := jsonstrict.Unmarshal(data, &v)
+//	if err == nil {
+//		err = result.Err()
+//	}
+//
+// The error message includes field names taken from the JSON input; see the
+// package note on untrusted data before echoing it to clients or logs.
+func (r Result) Err() error {
+	if len(r.Unknown) == 0 && len(r.Missing) == 0 {
+		return nil
+	}
+	e := &ResultError{Missing: r.Missing}
+	for path := range r.Unknown {
+		e.Unknown = append(e.Unknown, path)
+	}
+	sort.Strings(e.Unknown)
+	return e
+}
+
+// A ResultError is returned by Result.Err when a payload has unknown or
+// missing fields.
+type ResultError struct {
+	Unknown []string // paths of unknown fields, sorted
+	Missing []string // paths of missing required fields, sorted
+}
+
+func (e *ResultError) Error() string {
+	var b strings.Builder
+	b.WriteString("jsonstrict:")
+	if len(e.Unknown) > 0 {
+		b.WriteString(" unknown fields: ")
+		b.WriteString(strings.Join(e.Unknown, ", "))
+	}
+	if len(e.Missing) > 0 {
+		if len(e.Unknown) > 0 {
+			b.WriteString(";")
+		}
+		b.WriteString(" missing fields: ")
+		b.WriteString(strings.Join(e.Missing, ", "))
+	}
+	return b.String()
 }
 
 // InvalidTargetError describes an invalid target passed to Unmarshal: a
@@ -191,11 +239,28 @@ type fieldInfo struct {
 // named field, and only untagged embedded structs are flattened. Flattening
 // tracks visited types so self-referential embedding cannot recurse forever.
 // Name conflicts resolve as encoding/json does — see shadows.
+//
+// Results are cached per type, so the reflection walk runs once per struct
+// type for the life of the process. Callers must not mutate the returned map.
 func knownJSONKeys(t reflect.Type) map[string]fieldInfo {
+	if cached, ok := fieldCache.Load(t); ok {
+		if fields, ok := cached.(map[string]fieldInfo); ok {
+			return fields
+		}
+	}
 	fields := make(map[string]fieldInfo)
 	addKnownJSONKeys(t, fields, 0, map[reflect.Type]bool{t: true})
+	if actual, loaded := fieldCache.LoadOrStore(t, fields); loaded {
+		if cached, ok := actual.(map[string]fieldInfo); ok {
+			return cached
+		}
+	}
 	return fields
 }
+
+// fieldCache maps reflect.Type → map[string]fieldInfo, mirroring the field
+// cache in encoding/json.
+var fieldCache sync.Map
 
 func addKnownJSONKeys(t reflect.Type, fields map[string]fieldInfo, depth int, visited map[reflect.Type]bool) {
 	for i := range t.NumField() {

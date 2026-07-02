@@ -46,14 +46,29 @@ themselves, so they are treated as opaque and never recursed into.
 Fields tagged with `omitempty` or `omitzero` are not reported as missing.
 A key present with a JSON `null` value counts as present, not missing.
 
+Callers who want hard strictness can reject a payload in one step with
+`result.Err()`, which returns a `*jsonstrict.ResultError` listing the unknown
+and missing field paths (or nil when there are none):
+
+```go
+result, err := jsonstrict.Unmarshal(data, &config)
+if err == nil {
+    err = result.Err()
+}
+```
+
 The target must be a non-nil pointer to a struct.
 
 ## Performance
 
 The JSON input is parsed twice: once to identify unknown and missing keys,
-then again to populate the struct. This means ~2x the memory usage and CPU
-of a plain `json.Unmarshal`. Callers processing large payloads should bound
-input size before calling `Unmarshal`.
+then again to populate the struct. Nested containers are re-parsed as they
+are walked, so expect roughly 2–3x the CPU and memory of a plain
+`json.Unmarshal` for flat structs and more for deeply nested payloads — run
+`go test -bench=.` for numbers on your hardware. Known field names are
+cached per struct type, so the reflection walk costs nothing after the first
+call. Callers processing large payloads should bound input size before
+calling `Unmarshal`.
 
 ## License
 

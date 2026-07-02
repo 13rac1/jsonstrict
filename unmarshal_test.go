@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -928,4 +929,101 @@ func TestUnmarshal_OptionalNestedStillChecked(t *testing.T) {
 	if _, ok := result.Unknown["address.x"]; !ok {
 		t.Errorf("expected unknown address.x, got %v", result.Unknown)
 	}
+}
+
+// --- Result.Err ---
+
+func TestResultErr_NilWhenClean(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","value":1}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resultErr := result.Err(); resultErr != nil {
+		t.Errorf("expected nil for clean result, got %v", resultErr)
+	}
+}
+
+func TestResultErr_UnknownOnly(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","value":1,"z":1,"b":2}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resultErr := result.Err()
+	if resultErr == nil {
+		t.Fatal("expected error for unknown fields")
+	}
+	var target *jsonstrict.ResultError
+	if !errors.As(resultErr, &target) {
+		t.Fatalf("expected *jsonstrict.ResultError, got %T", resultErr)
+	}
+	if !slices.Equal(target.Unknown, []string{"b", "z"}) {
+		t.Errorf("expected sorted unknown [b z], got %v", target.Unknown)
+	}
+	if got, want := resultErr.Error(), "jsonstrict: unknown fields: b, z"; got != want {
+		t.Errorf("error message: got %q, want %q", got, want)
+	}
+}
+
+func TestResultErr_MissingOnly(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resultErr := result.Err()
+	if resultErr == nil {
+		t.Fatal("expected error for missing fields")
+	}
+	if got, want := resultErr.Error(), "jsonstrict: missing fields: name, value"; got != want {
+		t.Errorf("error message: got %q, want %q", got, want)
+	}
+}
+
+func TestResultErr_Both(t *testing.T) {
+	var v nestedCustomer
+	data := `{"name":"a","address":{"street":"s","zipp":"z"}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resultErr := result.Err()
+	if resultErr == nil {
+		t.Fatal("expected error")
+	}
+	want := "jsonstrict: unknown fields: address.zipp; missing fields: address.zip"
+	if got := resultErr.Error(); got != want {
+		t.Errorf("error message: got %q, want %q", got, want)
+	}
+}
+
+// TestUnmarshal_ConcurrentSameType exercises the per-type field cache under
+// the race detector.
+func TestUnmarshal_ConcurrentSameType(t *testing.T) {
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				var v nestedCustomer
+				data := `{"name":"a","address":{"street":"s","zipp":"x"}}`
+				result, err := jsonstrict.Unmarshal([]byte(data), &v)
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+					return
+				}
+				if _, ok := result.Unknown["address.zipp"]; !ok {
+					t.Errorf("expected unknown address.zipp, got %v", result.Unknown)
+					return
+				}
+				if !slices.Equal(result.Missing, []string{"address.zip"}) {
+					t.Errorf("expected [address.zip] missing, got %v", result.Missing)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
