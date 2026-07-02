@@ -59,6 +59,43 @@ type ptrEmbeddedParent struct {
 	Top string `json:"top"`
 }
 
+// TaggedEmbedInner is embedded WITH a json tag, so encoding/json treats it as
+// a regular named field rather than flattening it. Exported because
+// encoding/json requires embedded targets to be exported when decoded from
+// external test packages.
+type TaggedEmbedInner struct {
+	A string `json:"a"`
+}
+
+type taggedEmbedParent struct {
+	TaggedEmbedInner `json:"inner"`
+	B                string `json:"b"`
+}
+
+// dashEmbedParent embeds a struct tagged json:"-", which encoding/json
+// excludes entirely — its fields must not be treated as known.
+type dashEmbedParent struct {
+	embeddedInner `json:"-"`
+	B             string `json:"b"`
+}
+
+// RecursiveNode embeds a pointer to itself; key collection must not loop.
+type RecursiveNode struct {
+	*RecursiveNode
+	X int `json:"x"`
+}
+
+// RecursiveA and RecursiveB embed pointers to each other (an indirect cycle).
+type RecursiveA struct {
+	*RecursiveB
+	AField string `json:"a_field"`
+}
+
+type RecursiveB struct {
+	*RecursiveA
+	BField string `json:"b_field"`
+}
+
 func TestUnmarshal_NoUnknownFields(t *testing.T) {
 	var v testStruct
 	result, err := jsonstrict.Unmarshal([]byte(`{"name":"alice","value":42}`), &v)
@@ -278,6 +315,94 @@ func TestUnmarshal_PtrEmbeddedStruct(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_TaggedEmbeddedIsNamedField(t *testing.T) {
+	var v taggedEmbedParent
+	data := `{"inner":{"a":"x"},"b":"y"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 {
+		t.Errorf("tagged embedded field should be known as %q, got unknown %v", "inner", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
+	}
+	if v.A != "x" || v.B != "y" {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_TaggedEmbeddedNotFlattened(t *testing.T) {
+	var v taggedEmbedParent
+	// "a" lives inside "inner", not at the top level: encoding/json does not
+	// flatten a tagged embedded struct, so top-level "a" is unknown and
+	// "inner" is missing.
+	data := `{"a":"x","b":"y"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["a"]; !ok {
+		t.Errorf("expected top-level 'a' to be unknown, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"inner"}) {
+		t.Errorf("expected [inner] missing, got %v", result.Missing)
+	}
+	if v.A != "" {
+		t.Errorf("top-level 'a' should not populate embedded field, got %+v", v)
+	}
+}
+
+func TestUnmarshal_DashEmbeddedExcluded(t *testing.T) {
+	var v dashEmbedParent
+	// The embedded struct is tagged json:"-", so encoding/json ignores it
+	// entirely: "inner_field" must be reported unknown, not treated as known.
+	data := `{"inner_field":"i","b":"y"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["inner_field"]; !ok {
+		t.Errorf("expected unknown field 'inner_field', got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
+	}
+	if v.InnerField != "" {
+		t.Errorf("dash-embedded field should not be populated, got %+v", v)
+	}
+}
+
+func TestUnmarshal_RecursiveEmbedded(t *testing.T) {
+	var v RecursiveNode
+	result, err := jsonstrict.Unmarshal([]byte(`{"x":1}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("expected no diagnostics, got unknown=%v missing=%v", result.Unknown, result.Missing)
+	}
+	if v.X != 1 {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_MutuallyRecursiveEmbedded(t *testing.T) {
+	var v RecursiveA
+	data := `{"a_field":"a","b_field":"b"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("expected no diagnostics, got unknown=%v missing=%v", result.Unknown, result.Missing)
+	}
+	if v.AField != "a" || v.BField != "b" {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
 func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 	var v testStruct
 	data := []byte(`{"name":"x","extra":"y"}`)
@@ -326,8 +451,13 @@ func TestUnmarshal_NonStructPointerReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-struct pointer v")
 	}
-	var target *json.InvalidUnmarshalError
+	var target *jsonstrict.InvalidTargetError
 	if !errors.As(err, &target) {
-		t.Errorf("expected *json.InvalidUnmarshalError, got %T: %v", err, err)
+		t.Fatalf("expected *jsonstrict.InvalidTargetError, got %T: %v", err, err)
+	}
+	// The message must not claim the pointer is nil (the old
+	// *json.InvalidUnmarshalError rendered "json: Unmarshal(nil *int)").
+	if got, want := err.Error(), "jsonstrict: Unmarshal(non-struct *int)"; got != want {
+		t.Errorf("error message: got %q, want %q", got, want)
 	}
 }

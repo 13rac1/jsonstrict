@@ -25,7 +25,6 @@ package jsonstrict
 
 import (
 	"encoding/json"
-	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -37,13 +36,25 @@ type Result struct {
 	Missing []string                   // struct fields not present in JSON, sorted
 }
 
+// InvalidTargetError describes an invalid target passed to Unmarshal: a
+// non-nil pointer whose element type is not a struct. Nil and non-pointer
+// targets return *json.InvalidUnmarshalError instead, matching encoding/json.
+type InvalidTargetError struct {
+	Type reflect.Type // the target's type, e.g. *int
+}
+
+func (e *InvalidTargetError) Error() string {
+	return "jsonstrict: Unmarshal(non-struct " + e.Type.String() + ")"
+}
+
 // Unmarshal unmarshals data into v and returns a Result indicating which JSON
 // keys were unknown (with their raw values) and which struct fields were
 // missing from the input. Neither unknown nor missing fields cause an error —
 // only the normal json.Unmarshal error (if any) is returned.
 //
-// v must be a non-nil pointer to a struct; any other value returns a
-// *json.InvalidUnmarshalError.
+// v must be a non-nil pointer to a struct. A nil or non-pointer v returns a
+// *json.InvalidUnmarshalError, as encoding/json would; a non-nil pointer to
+// a non-struct returns an *InvalidTargetError.
 //
 // The data is parsed twice: once into a raw map to identify unknown and
 // missing keys, then into v for the actual decode. encoding/json provides
@@ -56,7 +67,7 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	}
 	rt := rv.Type().Elem()
 	if rt.Kind() != reflect.Struct {
-		return Result{}, &json.InvalidUnmarshalError{Type: reflect.TypeOf(v)}
+		return Result{}, &InvalidTargetError{Type: reflect.TypeOf(v)}
 	}
 
 	var result Result
@@ -86,24 +97,40 @@ func Unmarshal(data []byte, v any) (Result, error) {
 
 // knownJSONKeys returns two sets of JSON field names declared by t's struct
 // tags: required fields and optional fields. Fields tagged with omitempty are
-// optional. It recurses into anonymous (embedded) struct fields. Unexported
-// and json:"-" fields are excluded. Untagged exported fields fall back to the
-// Go field name, matching encoding/json behavior.
+// optional. Unexported and json:"-" fields are excluded. Untagged exported
+// fields fall back to the Go field name.
+//
+// Anonymous (embedded) struct fields follow encoding/json rules: a json:"-"
+// tag excludes the embedded struct entirely, a tag name makes it a regular
+// named field, and only untagged embedded structs are flattened. Flattening
+// tracks visited types so self-referential embedding cannot recurse forever.
 func knownJSONKeys(t reflect.Type) (required, optional map[string]struct{}) {
 	required = make(map[string]struct{})
 	optional = make(map[string]struct{})
+	addKnownJSONKeys(t, required, optional, map[reflect.Type]bool{t: true})
+	return required, optional
+}
+
+func addKnownJSONKeys(t reflect.Type, required, optional map[string]struct{}, visited map[reflect.Type]bool) {
 	for i := range t.NumField() {
 		field := t.Field(i)
 
-		if field.Anonymous {
+		tag := field.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name, opts, _ := strings.Cut(tag, ",")
+
+		if field.Anonymous && name == "" {
 			ft := field.Type
 			if ft.Kind() == reflect.Pointer {
 				ft = ft.Elem()
 			}
 			if ft.Kind() == reflect.Struct {
-				r, o := knownJSONKeys(ft)
-				maps.Copy(required, r)
-				maps.Copy(optional, o)
+				if !visited[ft] {
+					visited[ft] = true
+					addKnownJSONKeys(ft, required, optional, visited)
+				}
 				continue
 			}
 		}
@@ -112,11 +139,6 @@ func knownJSONKeys(t reflect.Type) (required, optional map[string]struct{}) {
 			continue
 		}
 
-		tag := field.Tag.Get("json")
-		if tag == "-" {
-			continue
-		}
-		name, opts, _ := strings.Cut(tag, ",")
 		if name == "" {
 			name = field.Name
 		}
@@ -126,5 +148,4 @@ func knownJSONKeys(t reflect.Type) (required, optional map[string]struct{}) {
 			required[name] = struct{}{}
 		}
 	}
-	return required, optional
 }
