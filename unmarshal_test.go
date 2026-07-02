@@ -57,7 +57,7 @@ type shadowParent struct {
 // invalidTagStruct has a tag name encoding/json rejects (single quote is not
 // an allowed character), so the Go field name is used instead.
 type invalidTagStruct struct {
-	Field string `json:"bad'name"`
+	Field string `json:"bad'name"` //nolint:staticcheck // SA5008: intentionally malformed tag to test isValidTag fallback
 }
 
 // untaggedStruct has a field with no json tag (falls back to Go name).
