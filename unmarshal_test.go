@@ -149,8 +149,8 @@ func TestUnmarshal_UnknownFields(t *testing.T) {
 	if len(result.Unknown) != 1 {
 		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
 	}
-	if string(result.Unknown["extra"]) != `"x"` {
-		t.Errorf("expected raw value '\"x\"', got %s", result.Unknown["extra"])
+	if string(result.Unknown[`["extra"]`]) != `"x"` {
+		t.Errorf("expected raw value '\"x\"', got %s", result.Unknown[`["extra"]`])
 	}
 	if len(result.Missing) != 0 {
 		t.Errorf("expected no missing fields, got %v", result.Missing)
@@ -167,7 +167,7 @@ func TestUnmarshal_MultipleUnknownFields(t *testing.T) {
 	if len(result.Unknown) != 3 {
 		t.Fatalf("expected 3 unknown fields, got %d", len(result.Unknown))
 	}
-	for _, key := range []string{"a", "b", "c"} {
+	for _, key := range []string{`["a"]`, `["b"]`, `["c"]`} {
 		if _, ok := result.Unknown[key]; !ok {
 			t.Errorf("expected unknown field %q", key)
 		}
@@ -181,14 +181,14 @@ func TestUnmarshal_UnknownFieldValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(result.Unknown["num"]) != "42" {
-		t.Errorf("expected raw 42, got %s", result.Unknown["num"])
+	if string(result.Unknown[`["num"]`]) != "42" {
+		t.Errorf("expected raw 42, got %s", result.Unknown[`["num"]`])
 	}
-	if string(result.Unknown["obj"]) != `{"nested":true}` {
-		t.Errorf("expected raw object, got %s", result.Unknown["obj"])
+	if string(result.Unknown[`["obj"]`]) != `{"nested":true}` {
+		t.Errorf("expected raw object, got %s", result.Unknown[`["obj"]`])
 	}
-	if string(result.Unknown["arr"]) != `[1,2]` {
-		t.Errorf("expected raw array, got %s", result.Unknown["arr"])
+	if string(result.Unknown[`["arr"]`]) != `[1,2]` {
+		t.Errorf("expected raw array, got %s", result.Unknown[`["arr"]`])
 	}
 }
 
@@ -204,7 +204,7 @@ func TestUnmarshal_MissingFields(t *testing.T) {
 	if len(result.Unknown) != 0 {
 		t.Errorf("expected no unknown fields, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"value"}) {
+	if !slices.Equal(result.Missing, []string{`["value"]`}) {
 		t.Errorf("expected [value], got %v", result.Missing)
 	}
 }
@@ -215,7 +215,7 @@ func TestUnmarshal_AllFieldsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Missing, []string{"name", "value"}) {
+	if !slices.Equal(result.Missing, []string{`["name"]`, `["value"]`}) {
 		t.Errorf("expected [name value], got %v", result.Missing)
 	}
 }
@@ -264,7 +264,7 @@ func TestUnmarshal_DashExcluded(t *testing.T) {
 	if len(result.Unknown) != 1 {
 		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
 	}
-	if _, ok := result.Unknown["Hidden"]; !ok {
+	if _, ok := result.Unknown[`["Hidden"]`]; !ok {
 		t.Errorf("expected unknown field 'Hidden', got %v", result.Unknown)
 	}
 }
@@ -333,7 +333,7 @@ func TestUnmarshal_TopLevelNull(t *testing.T) {
 	if v.Name != "keep" || v.Value != 7 {
 		t.Errorf("null should leave the struct untouched, got %+v", v)
 	}
-	if !slices.Equal(result.Missing, []string{"name", "value"}) {
+	if !slices.Equal(result.Missing, []string{`["name"]`, `["value"]`}) {
 		t.Errorf("expected [name value] missing, got %v", result.Missing)
 	}
 	if len(result.Unknown) != 0 {
@@ -375,7 +375,7 @@ func TestUnmarshal_InvalidTagNameFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["bad'name"]; !ok {
+	if _, ok := result.Unknown[`["bad'name"]`]; !ok {
 		t.Errorf("invalid tag name should not be known, got %v", result.Unknown)
 	}
 	if len(result.Missing) != 0 {
@@ -413,7 +413,7 @@ func TestUnmarshal_UnexportedFieldIsUnknown(t *testing.T) {
 	if len(result.Unknown) != 1 {
 		t.Fatalf("expected 1 unknown field, got %d", len(result.Unknown))
 	}
-	if _, ok := result.Unknown["secret"]; !ok {
+	if _, ok := result.Unknown[`["secret"]`]; !ok {
 		t.Errorf("expected unknown field 'secret', got %v", result.Unknown)
 	}
 }
@@ -461,10 +461,10 @@ func TestUnmarshal_TaggedEmbeddedNotFlattened(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["a"]; !ok {
+	if _, ok := result.Unknown[`["a"]`]; !ok {
 		t.Errorf("expected top-level 'a' to be unknown, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"inner"}) {
+	if !slices.Equal(result.Missing, []string{`["inner"]`}) {
 		t.Errorf("expected [inner] missing, got %v", result.Missing)
 	}
 	if v.A != "" {
@@ -481,7 +481,7 @@ func TestUnmarshal_DashEmbeddedExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["inner_field"]; !ok {
+	if _, ok := result.Unknown[`["inner_field"]`]; !ok {
 		t.Errorf("expected unknown field 'inner_field', got %v", result.Unknown)
 	}
 	if len(result.Missing) != 0 {
@@ -534,7 +534,7 @@ func TestUnmarshal_RepeatedCallsReturnFields(t *testing.T) {
 		if len(result.Unknown) != 1 {
 			t.Errorf("call %d: expected 1 unknown field, got %d", i, len(result.Unknown))
 		}
-		if _, ok := result.Unknown["extra"]; !ok {
+		if _, ok := result.Unknown[`["extra"]`]; !ok {
 			t.Errorf("call %d: expected unknown field 'extra', got %v", i, result.Unknown)
 		}
 	}
@@ -677,10 +677,10 @@ func TestUnmarshal_NestedUnknownAndMissing(t *testing.T) {
 	if len(result.Unknown) != 1 {
 		t.Fatalf("expected 1 unknown field, got %v", result.Unknown)
 	}
-	if string(result.Unknown["address.zipp"]) != `"90210"` {
+	if string(result.Unknown[`["address"]["zipp"]`]) != `"90210"` {
 		t.Errorf("expected unknown address.zipp with raw value, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"address.zip"}) {
+	if !slices.Equal(result.Missing, []string{`["address"]["zip"]`}) {
 		t.Errorf("expected [address.zip] missing, got %v", result.Missing)
 	}
 	if v.Name != "alice" || v.Address.Street != "1 Main St" {
@@ -695,10 +695,10 @@ func TestUnmarshal_NestedPointerStruct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["address.zipp"]; !ok {
+	if _, ok := result.Unknown[`["address"]["zipp"]`]; !ok {
 		t.Errorf("expected unknown address.zipp, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"address.zip"}) {
+	if !slices.Equal(result.Missing, []string{`["address"]["zip"]`}) {
 		t.Errorf("expected [address.zip] missing, got %v", result.Missing)
 	}
 }
@@ -710,7 +710,7 @@ func TestUnmarshal_MissingNestedObjectReportedShallow(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Only the absent object itself, not every path beneath it.
-	if !slices.Equal(result.Missing, []string{"address", "name"}) {
+	if !slices.Equal(result.Missing, []string{`["address"]`, `["name"]`}) {
 		t.Errorf("expected [address name] missing, got %v", result.Missing)
 	}
 }
@@ -722,10 +722,10 @@ func TestUnmarshal_DeeplyNested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["l2.l3.x"]; !ok {
+	if _, ok := result.Unknown[`["l2"]["l3"]["x"]`]; !ok {
 		t.Errorf("expected unknown l2.l3.x, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"l2.l3.d"}) {
+	if !slices.Equal(result.Missing, []string{`["l2"]["l3"]["d"]`}) {
 		t.Errorf("expected [l2.l3.d] missing, got %v", result.Missing)
 	}
 }
@@ -763,10 +763,10 @@ func TestUnmarshal_SliceOfStructs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(result.Unknown["items[1].extra"]) != "true" {
+	if string(result.Unknown[`["items"][1]["extra"]`]) != "true" {
 		t.Errorf("expected unknown items[1].extra, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"items[1].zip"}) {
+	if !slices.Equal(result.Missing, []string{`["items"][1]["zip"]`}) {
 		t.Errorf("expected [items[1].zip] missing, got %v", result.Missing)
 	}
 }
@@ -778,7 +778,7 @@ func TestUnmarshal_SliceOfPointerStructs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Missing, []string{"items[0].zip"}) {
+	if !slices.Equal(result.Missing, []string{`["items"][0]["zip"]`}) {
 		t.Errorf("expected [items[0].zip] missing, got %v", result.Missing)
 	}
 }
@@ -790,10 +790,10 @@ func TestUnmarshal_ArrayOfStructs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["pair[1].bogus"]; !ok {
+	if _, ok := result.Unknown[`["pair"][1]["bogus"]`]; !ok {
 		t.Errorf("expected unknown pair[1].bogus, got %v", result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{"pair[1].zip"}) {
+	if !slices.Equal(result.Missing, []string{`["pair"][1]["zip"]`}) {
 		t.Errorf("expected [pair[1].zip] missing, got %v", result.Missing)
 	}
 }
@@ -805,7 +805,7 @@ func TestUnmarshal_NestedSliceOfSlices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !slices.Equal(result.Missing, []string{"grid[1][1].zip"}) {
+	if !slices.Equal(result.Missing, []string{`["grid"][1][1]["zip"]`}) {
 		t.Errorf("expected [grid[1][1].zip] missing, got %v", result.Missing)
 	}
 }
@@ -818,10 +818,10 @@ func TestUnmarshal_MapOfStructs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Map keys are quoted in paths, so keys containing dots stay unambiguous.
-	if string(result.Unknown[`config["dev"].debug`]) != "true" {
+	if string(result.Unknown[`["config"]["dev"]["debug"]`]) != "true" {
 		t.Errorf(`expected unknown config["dev"].debug, got %v`, result.Unknown)
 	}
-	if !slices.Equal(result.Missing, []string{`config["dev"].zip`}) {
+	if !slices.Equal(result.Missing, []string{`["config"]["dev"]["zip"]`}) {
 		t.Errorf(`expected [config["dev"].zip] missing, got %v`, result.Missing)
 	}
 }
@@ -917,7 +917,7 @@ func TestUnmarshal_NestedEmbedded(t *testing.T) {
 	if len(result.Unknown) != 1 {
 		t.Fatalf("expected 1 unknown field, got %v", result.Unknown)
 	}
-	if _, ok := result.Unknown["wrapped.bogus"]; !ok {
+	if _, ok := result.Unknown[`["wrapped"]["bogus"]`]; !ok {
 		t.Errorf("expected unknown wrapped.bogus, got %v", result.Unknown)
 	}
 	if len(result.Missing) != 0 {
@@ -944,7 +944,7 @@ func TestUnmarshal_OptionalNestedStillChecked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := result.Unknown["address.x"]; !ok {
+	if _, ok := result.Unknown[`["address"]["x"]`]; !ok {
 		t.Errorf("expected unknown address.x, got %v", result.Unknown)
 	}
 }
@@ -976,10 +976,10 @@ func TestResultErr_UnknownOnly(t *testing.T) {
 	if !errors.As(resultErr, &target) {
 		t.Fatalf("expected *jsonstrict.ResultError, got %T", resultErr)
 	}
-	if !slices.Equal(target.Unknown, []string{"b", "z"}) {
+	if !slices.Equal(target.Unknown, []string{`["b"]`, `["z"]`}) {
 		t.Errorf("expected sorted unknown [b z], got %v", target.Unknown)
 	}
-	if got, want := resultErr.Error(), "jsonstrict: unknown fields: b, z"; got != want {
+	if got, want := resultErr.Error(), `jsonstrict: unknown fields: ["b"], ["z"]`; got != want {
 		t.Errorf("error message: got %q, want %q", got, want)
 	}
 }
@@ -994,7 +994,7 @@ func TestResultErr_MissingOnly(t *testing.T) {
 	if resultErr == nil {
 		t.Fatal("expected error for missing fields")
 	}
-	if got, want := resultErr.Error(), "jsonstrict: missing fields: name, value"; got != want {
+	if got, want := resultErr.Error(), `jsonstrict: missing fields: ["name"], ["value"]`; got != want {
 		t.Errorf("error message: got %q, want %q", got, want)
 	}
 }
@@ -1010,10 +1010,284 @@ func TestResultErr_Both(t *testing.T) {
 	if resultErr == nil {
 		t.Fatal("expected error")
 	}
-	want := "jsonstrict: unknown fields: address.zipp; missing fields: address.zip"
+	want := `jsonstrict: unknown fields: ["address"]["zipp"]; missing fields: ["address"]["zip"]`
 	if got := resultErr.Error(); got != want {
 		t.Errorf("error message: got %q, want %q", got, want)
 	}
+}
+
+func TestUnmarshal_DuplicateKeyAtRoot(t *testing.T) {
+	var v testStruct
+	// encoding/json keeps the last value; jsonstrict reports the duplicate.
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","name":"b","value":1}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Name != "b" {
+		t.Errorf("expected last-wins decode name=b, got %+v", v)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["name"]`}) {
+		t.Errorf(`expected duplicates [["name"]], got %v`, result.Duplicates)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("duplicate of a known key must not be unknown/missing, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+}
+
+func TestUnmarshal_DuplicateUnknownKey(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","value":1,"foo":1,"foo":2}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["foo"]`}) {
+		t.Errorf(`expected duplicates [["foo"]], got %v`, result.Duplicates)
+	}
+	if _, ok := result.Unknown[`["foo"]`]; !ok {
+		t.Errorf(`expected ["foo"] unknown, got %v`, result.Unknown)
+	}
+}
+
+func TestUnmarshal_DuplicateTripleReportedOnce(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","value":1,"x":1,"x":2,"x":3}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["x"]`}) {
+		t.Errorf(`expected a single ["x"] duplicate, got %v`, result.Duplicates)
+	}
+}
+
+func TestUnmarshal_DuplicateNested(t *testing.T) {
+	var v nestedCustomer
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","address":{"street":"s","zip":"1","zip":"2"}}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["address"]["zip"]`}) {
+		t.Errorf(`expected duplicates [["address"]["zip"]], got %v`, result.Duplicates)
+	}
+}
+
+func TestUnmarshal_DuplicateTopLevelArray(t *testing.T) {
+	// A top-level array cannot decode into a struct, so err is non-nil, but the
+	// structural scan still covers it — proving full, schema-free coverage.
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`[{"a":1,"a":2}]`), &v)
+	if err == nil {
+		t.Fatal("expected decode error for array into struct")
+	}
+	if !slices.Equal(result.Duplicates, []string{`[0]["a"]`}) {
+		t.Errorf(`expected duplicates [[0]["a"]], got %v`, result.Duplicates)
+	}
+}
+
+func TestUnmarshal_DuplicateInsideOpaque(t *testing.T) {
+	// json.RawMessage is opaque to the schema pass, but the structural scan
+	// still reports duplicates inside it.
+	var v rawHolder
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"n","raw":{"a":1,"a":2}}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["raw"]["a"]`}) {
+		t.Errorf(`expected duplicates [["raw"]["a"]], got %v`, result.Duplicates)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("opaque interior must not yield schema diagnostics, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+}
+
+func TestUnmarshal_DuplicateKeyPathWithDot(t *testing.T) {
+	// A map key containing a dot stays unambiguous under bracket notation.
+	var v mapHolder
+	result, err := jsonstrict.Unmarshal([]byte(`{"config":{"a.b":{"street":"s","zip":"1","zip":"2"}}}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["config"]["a.b"]["zip"]`}) {
+		t.Errorf(`expected duplicates [["config"]["a.b"]["zip"]], got %v`, result.Duplicates)
+	}
+}
+
+func TestUnmarshal_InvalidUTF8Value(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte("{\"name\":\"a\xffb\",\"value\":1}"), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.InvalidUTF8, []string{`["name"]`}) {
+		t.Errorf(`expected invalidUTF8 [["name"]], got %v`, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_InvalidUTF8Nested(t *testing.T) {
+	var v nestedCustomer
+	result, err := jsonstrict.Unmarshal([]byte("{\"name\":\"n\",\"address\":{\"street\":\"s\",\"zip\":\"\xff\"}}"), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.InvalidUTF8, []string{`["address"]["zip"]`}) {
+		t.Errorf(`expected invalidUTF8 [["address"]["zip"]], got %v`, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_InvalidUTF8Key(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte("{\"name\":\"a\",\"value\":1,\"\xffbad\":2}"), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.InvalidUTF8) != 1 {
+		t.Fatalf("expected 1 invalid-UTF-8 path for a bad key, got %v", result.InvalidUTF8)
+	}
+	// The bad key is also unknown (its bytes decode with U+FFFD, matching stdlib).
+	if len(result.Unknown) != 1 {
+		t.Errorf("expected the bad key reported unknown, got %v", result.Unknown)
+	}
+}
+
+func TestUnmarshal_InvalidUTF8TopLevelString(t *testing.T) {
+	// A bare string cannot decode into a struct, so err is non-nil, but the scan
+	// reports the root ("") as holding invalid UTF-8.
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte("\"\xff\""), &v)
+	if err == nil {
+		t.Fatal("expected decode error for string into struct")
+	}
+	if !slices.Equal(result.InvalidUTF8, []string{""}) {
+		t.Errorf(`expected invalidUTF8 [""] at root, got %q`, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_DuplicateBadUTF8KeysDecodeEqual(t *testing.T) {
+	// Two distinct invalid-UTF-8 bytes both decode to U+FFFD, so encoding/json
+	// collapses them to one map entry — jsonstrict reports the duplicate.
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte("{\"name\":\"a\",\"value\":1,\"\xff\":1,\"\xfe\":2}"), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Duplicates) != 1 {
+		t.Errorf("expected a single duplicate for U+FFFD-equal keys, got %v", result.Duplicates)
+	}
+	if len(result.InvalidUTF8) != 1 {
+		t.Errorf("expected a single invalid-UTF-8 path (deduped), got %v", result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_NoStructuralDiagnostics(t *testing.T) {
+	var v nestedCustomer
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","address":{"street":"s","zip":"z"}}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Duplicates) != 0 || len(result.InvalidUTF8) != 0 {
+		t.Errorf("clean input must have no structural diagnostics, got duplicates=%v invalidUTF8=%v",
+			result.Duplicates, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_EmptyContainersNoDiagnostics(t *testing.T) {
+	var v sliceHolder
+	result, err := jsonstrict.Unmarshal([]byte(`{"items":[]}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Duplicates) != 0 || len(result.InvalidUTF8) != 0 {
+		t.Errorf("empty containers must have no structural diagnostics, got duplicates=%v invalidUTF8=%v",
+			result.Duplicates, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_AllFourDiagnosticsConsistent(t *testing.T) {
+	// One payload exercising unknown, missing, duplicate, and invalid-UTF-8 at a
+	// nested location — asserting all four share the same bracket notation.
+	var v nestedCustomer
+	data := []byte("{\"name\":\"n\",\"address\":{\"street\":\"\xff\",\"street\":\"s\",\"bogus\":1}}")
+	result, err := jsonstrict.Unmarshal(data, &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown[`["address"]["bogus"]`]; !ok {
+		t.Errorf(`expected unknown ["address"]["bogus"], got %v`, result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{`["address"]["zip"]`}) {
+		t.Errorf(`expected missing [["address"]["zip"]], got %v`, result.Missing)
+	}
+	if !slices.Equal(result.Duplicates, []string{`["address"]["street"]`}) {
+		t.Errorf(`expected duplicates [["address"]["street"]], got %v`, result.Duplicates)
+	}
+	if !slices.Equal(result.InvalidUTF8, []string{`["address"]["street"]`}) {
+		t.Errorf(`expected invalidUTF8 [["address"]["street"]], got %v`, result.InvalidUTF8)
+	}
+}
+
+func TestResultErr_AllFourCategories(t *testing.T) {
+	var v nestedCustomer
+	data := []byte("{\"name\":\"n\",\"address\":{\"street\":\"\xff\",\"street\":\"s\",\"bogus\":1}}")
+	result, err := jsonstrict.Unmarshal(data, &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `jsonstrict: unknown fields: ["address"]["bogus"]; missing fields: ["address"]["zip"]; ` +
+		`duplicate fields: ["address"]["street"]; invalid UTF-8: ["address"]["street"]`
+	if got := result.Err().Error(); got != want {
+		t.Errorf("error message:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestResultErr_DuplicatesOnly(t *testing.T) {
+	var v testStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":"a","name":"b","value":1}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := result.Err().Error(), `jsonstrict: duplicate fields: ["name"]`; got != want {
+		t.Errorf("error message: got %q, want %q", got, want)
+	}
+}
+
+func TestUnmarshal_MultipleInvalidUTF8Sorted(t *testing.T) {
+	// Two distinct invalid-UTF-8 strings, so the scan reports both, sorted.
+	var v nestedCustomer
+	result, err := jsonstrict.Unmarshal([]byte("{\"name\":\"\xff\",\"address\":{\"street\":\"\xfe\",\"zip\":\"z\"}}"), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.InvalidUTF8, []string{`["address"]["street"]`, `["name"]`}) {
+		t.Errorf(`expected sorted invalidUTF8 [["address"]["street"] ["name"]], got %v`, result.InvalidUTF8)
+	}
+}
+
+func TestUnmarshal_WrongShapeNotRecursed(t *testing.T) {
+	// A slice- or map-typed field whose JSON value has the wrong shape fails the
+	// real decode and is not recursed into for diagnostics.
+	t.Run("slice", func(t *testing.T) {
+		var v sliceHolder
+		result, err := jsonstrict.Unmarshal([]byte(`{"items":"not-an-array"}`), &v)
+		if err == nil {
+			t.Fatal("expected decode error for string into slice")
+		}
+		if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+			t.Errorf("wrong-shaped field must not yield nested diagnostics, got unknown=%v missing=%v",
+				result.Unknown, result.Missing)
+		}
+	})
+	t.Run("map", func(t *testing.T) {
+		var v mapHolder
+		result, err := jsonstrict.Unmarshal([]byte(`{"config":42}`), &v)
+		if err == nil {
+			t.Fatal("expected decode error for number into map")
+		}
+		if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+			t.Errorf("wrong-shaped field must not yield nested diagnostics, got unknown=%v missing=%v",
+				result.Unknown, result.Missing)
+		}
+	})
 }
 
 // TestUnmarshal_ConcurrentSameType exercises the per-type field cache under
@@ -1032,11 +1306,11 @@ func TestUnmarshal_ConcurrentSameType(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 					return
 				}
-				if _, ok := result.Unknown["address.zipp"]; !ok {
+				if _, ok := result.Unknown[`["address"]["zipp"]`]; !ok {
 					t.Errorf("expected unknown address.zipp, got %v", result.Unknown)
 					return
 				}
-				if !slices.Equal(result.Missing, []string{"address.zip"}) {
+				if !slices.Equal(result.Missing, []string{`["address"]["zip"]`}) {
 					t.Errorf("expected [address.zip] missing, got %v", result.Missing)
 					return
 				}

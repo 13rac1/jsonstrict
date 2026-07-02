@@ -24,19 +24,19 @@ type fuzzTarget struct {
 	Items  []fuzzNested `json:"items,omitempty"`
 }
 
-// fuzzKnownTopLevel are the JSON keys fuzzTarget declares; they must never be
-// reported unknown at the top level.
-var fuzzKnownTopLevel = []string{"name", "value", "ok", "nested", "items"}
+// fuzzKnownTopLevel are the JSON keys fuzzTarget declares, in bracket-path
+// form; they must never be reported unknown at the top level.
+var fuzzKnownTopLevel = []string{`["name"]`, `["value"]`, `["ok"]`, `["nested"]`, `["items"]`}
 
 // validMissingPath reports whether p is a path fuzzTarget could legitimately
 // report missing: a required top-level key, the nested struct's field, or a
 // slice element's field. Items itself is omitempty and never missing.
 func validMissingPath(p string) bool {
 	switch p {
-	case "name", "value", "ok", "nested", "nested.label":
+	case `["name"]`, `["value"]`, `["ok"]`, `["nested"]`, `["nested"]["label"]`:
 		return true
 	}
-	return strings.HasPrefix(p, "items[") && strings.HasSuffix(p, "].label")
+	return strings.HasPrefix(p, `["items"][`) && strings.HasSuffix(p, `]["label"]`)
 }
 
 // FuzzUnmarshal differentially tests Unmarshal against plain json.Unmarshal
@@ -53,6 +53,11 @@ func FuzzUnmarshal(f *testing.F) {
 	f.Add([]byte(``))
 	f.Add([]byte(`not json`))
 	f.Add([]byte(`{"name":null,"value":"not_int"}`))
+	f.Add([]byte(`{"name":"a","name":"b"}`))   // duplicate known key
+	f.Add([]byte(`{"dup":1,"dup":2,"dup":3}`)) // duplicate unknown key
+	f.Add([]byte("{\"name\":\"\xff\"}"))       // invalid UTF-8 value
+	f.Add([]byte("{\"\xff\":1}"))              // invalid UTF-8 key
+	f.Add([]byte(`[{"a":1,"a":2}]`))           // top-level array
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var got fuzzTarget
@@ -99,10 +104,31 @@ func FuzzUnmarshal(f *testing.F) {
 			}
 		}
 
+		// Structural diagnostics must be sorted and unique. Paths are non-empty
+		// except the root (""), which only a top-level scalar can produce.
+		for _, list := range [][]string{result.Duplicates, result.InvalidUTF8} {
+			if !slices.IsSorted(list) {
+				t.Errorf("structural list not sorted: %v", list)
+			}
+			for i, p := range list {
+				if i > 0 && p == list[i-1] {
+					t.Errorf("duplicate structural path %q in %v", p, list)
+				}
+			}
+		}
+		// Duplicate keys always live in an object, so their paths are never root.
+		for _, p := range result.Duplicates {
+			if p == "" {
+				t.Errorf("duplicate path is empty (root): %v", result.Duplicates)
+			}
+		}
+
 		// Err must agree with the diagnostics.
-		if hasDiag := len(result.Unknown) > 0 || len(result.Missing) > 0; hasDiag != (result.Err() != nil) {
-			t.Errorf("Err()=%v inconsistent with unknown=%v missing=%v",
-				result.Err(), result.Unknown, result.Missing)
+		hasDiag := len(result.Unknown) > 0 || len(result.Missing) > 0 ||
+			len(result.Duplicates) > 0 || len(result.InvalidUTF8) > 0
+		if hasDiag != (result.Err() != nil) {
+			t.Errorf("Err()=%v inconsistent with unknown=%v missing=%v duplicates=%v invalidUTF8=%v",
+				result.Err(), result.Unknown, result.Missing, result.Duplicates, result.InvalidUTF8)
 		}
 	})
 }

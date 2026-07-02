@@ -50,8 +50,8 @@ func ExampleUnmarshal_unknownFields() {
 		fmt.Printf("unknown %s: %s\n", k, result.Unknown[k])
 	}
 	// Output:
-	// unknown age: 30
-	// unknown role: "admin"
+	// unknown ["age"]: 30
+	// unknown ["role"]: "admin"
 }
 
 type Shipping struct {
@@ -78,8 +78,8 @@ func ExampleUnmarshal_nested() {
 	}
 	fmt.Println("missing:", result.Missing)
 	// Output:
-	// unknown shipping.zipp: "90210"
-	// missing: [shipping.zip]
+	// unknown ["shipping"]["zipp"]: "90210"
+	// missing: [["shipping"]["zip"]]
 }
 
 func ExampleUnmarshal_missingFields() {
@@ -93,5 +93,22 @@ func ExampleUnmarshal_missingFields() {
 	}
 	fmt.Println("missing:", result.Missing)
 	// Output:
-	// missing: [email]
+	// missing: [["email"]]
+}
+
+func ExampleUnmarshal_duplicateKeys() {
+	// encoding/json silently keeps the last "email"; jsonstrict reports it.
+	data := []byte(`{"name":"alice","email":"a@x.com","email":"b@x.com"}`)
+
+	var user User
+	result, err := jsonstrict.Unmarshal(data, &user)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println("email:", user.Email)
+	fmt.Println("duplicates:", result.Duplicates)
+	// Output:
+	// email: b@x.com
+	// duplicates: [["email"]]
 }
