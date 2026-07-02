@@ -41,7 +41,15 @@ missing: address.zip, items[1].name
 ```
 
 Types that implement `json.Unmarshaler` (such as `time.Time`) decode
-themselves, so they are treated as opaque and never recursed into.
+themselves, so they are treated as opaque and never recursed into. That
+includes the target type itself: if it implements `json.Unmarshaler`, the
+`Result` is always empty.
+
+Key matching is case-sensitive, unlike `encoding/json` which falls back to a
+case-insensitive match. Given a field tagged `json:"name"`, the input
+`{"Name":"bob"}` decodes into the field, but jsonstrict reports `Name` as
+unknown and `name` as missing — so hard-strict callers using `result.Err()`
+will reject payloads that differ only in key case. Strict means exact match.
 
 Fields tagged with `omitempty` or `omitzero` are not reported as missing.
 A key present with a JSON `null` value counts as present, not missing.

@@ -11,8 +11,8 @@
 // slice and array elements use an index (items[0].name), and map values use
 // a quoted key (config["dev"].host). Types implementing json.Unmarshaler,
 // such as time.Time, decode themselves, so they are treated as opaque and
-// never recursed into; the same goes for interface-typed fields, which have
-// no schema. Null values are never recursed into, and a missing nested
+// never recursed into — including the target type itself; the same goes for
+// interface-typed fields, which have no schema. Null values are never recursed into, and a missing nested
 // object is reported by its own path only, not by every path beneath it.
 //
 // If you only need to reject unknown fields without knowing which ones,
@@ -126,6 +126,10 @@ func (e *InvalidTargetError) Error() string {
 // *json.InvalidUnmarshalError, as encoding/json would; a non-nil pointer to
 // a non-struct returns an *InvalidTargetError.
 //
+// If the target type itself implements json.Unmarshaler, it decodes itself
+// and its struct tags say nothing about the JSON shape it accepts, so it is
+// opaque — the Result is always empty — just as such types are when nested.
+//
 // The data is parsed twice: once into raw form to identify unknown and
 // missing keys (nested containers are re-parsed as they are walked), then
 // into v for the actual decode. encoding/json provides no hook to intercept
@@ -142,10 +146,12 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	}
 
 	var result Result
-	var raw map[string]json.RawMessage
-	if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
-		checkStruct(rt, raw, "", &result)
-		sort.Strings(result.Missing)
+	if !reflect.PointerTo(rt).Implements(jsonUnmarshalerType) {
+		var raw map[string]json.RawMessage
+		if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
+			checkStruct(rt, raw, "", &result)
+			sort.Strings(result.Missing)
+		}
 	}
 
 	return result, json.Unmarshal(data, v)

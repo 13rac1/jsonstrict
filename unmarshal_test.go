@@ -844,6 +844,24 @@ func TestUnmarshal_JSONUnmarshalerOpaque(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_TopLevelUnmarshalerOpaque(t *testing.T) {
+	var v opaqueTarget
+	// opaqueTarget decodes itself, so its struct fields say nothing about
+	// the JSON shape it accepts: no keys are unknown, none are missing.
+	data := `{"anything":1,"goes":[true]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("json.Unmarshaler target must be opaque, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+	if v.Sum == 0 {
+		t.Errorf("custom unmarshaler not invoked: %+v", v)
+	}
+}
+
 func TestUnmarshal_TimeFieldOpaque(t *testing.T) {
 	var v timeHolder
 	data := `{"created":"2026-07-02T10:00:00Z","name":"a"}`
