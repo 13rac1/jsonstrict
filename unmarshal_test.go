@@ -36,6 +36,28 @@ type omitemptyStruct struct {
 	Field string `json:"field,omitempty"`
 }
 
+// omitzeroStruct has a field with the omitzero option (Go 1.24+).
+type omitzeroStruct struct {
+	Field int `json:"field,omitzero"`
+}
+
+// shadowInner and shadowParent declare the same JSON name "x" at different
+// embedding depths; encoding/json resolves to the shallower parent field.
+type shadowInner struct {
+	InnerX string `json:"x"`
+}
+
+type shadowParent struct {
+	shadowInner
+	OuterX string `json:"x,omitempty"`
+}
+
+// invalidTagStruct has a tag name encoding/json rejects (single quote is not
+// an allowed character), so the Go field name is used instead.
+type invalidTagStruct struct {
+	Field string `json:"bad'name"`
+}
+
 // untaggedStruct has a field with no json tag (falls back to Go name).
 type untaggedStruct struct {
 	GoName string
@@ -265,6 +287,100 @@ func TestUnmarshal_OmitemptyNotMissing(t *testing.T) {
 	}
 	if len(result.Missing) != 0 {
 		t.Errorf("omitempty field should not be missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_OmitzeroNotMissing(t *testing.T) {
+	var v omitzeroStruct
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("omitzero field should not be missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_NullValueIsPresent(t *testing.T) {
+	var v testStruct
+	// A key present with a null value counts as present, not missing —
+	// presence is about the key, not the value.
+	result, err := jsonstrict.Unmarshal([]byte(`{"name":null,"value":1}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("null-valued key should count as present, got missing %v", result.Missing)
+	}
+	if len(result.Unknown) != 0 {
+		t.Errorf("expected no unknown fields, got %v", result.Unknown)
+	}
+	if v.Name != "" || v.Value != 1 {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_TopLevelNull(t *testing.T) {
+	// Top-level null decodes as a no-op with no error (like encoding/json)
+	// and reports every required field as missing.
+	v := testStruct{Name: "keep", Value: 7}
+	result, err := jsonstrict.Unmarshal([]byte(`null`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Name != "keep" || v.Value != 7 {
+		t.Errorf("null should leave the struct untouched, got %+v", v)
+	}
+	if !slices.Equal(result.Missing, []string{"name", "value"}) {
+		t.Errorf("expected [name value] missing, got %v", result.Missing)
+	}
+	if len(result.Unknown) != 0 {
+		t.Errorf("expected no unknown fields, got %v", result.Unknown)
+	}
+}
+
+func TestUnmarshal_ShadowedFieldShallowerWins(t *testing.T) {
+	var v shadowParent
+	// "x" is declared required at depth 1 and optional at depth 0;
+	// encoding/json resolves to the shallower field, so it is optional.
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("shadowed 'x' should resolve to the optional outer field, got missing %v", result.Missing)
+	}
+
+	// And the decode goes to the shallower field, matching the diagnostics.
+	result, err = jsonstrict.Unmarshal([]byte(`{"x":"v"}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 {
+		t.Errorf("expected no unknown fields, got %v", result.Unknown)
+	}
+	if v.OuterX != "v" || v.InnerX != "" {
+		t.Errorf("expected shallower field populated, got %+v", v)
+	}
+}
+
+func TestUnmarshal_InvalidTagNameFallsBack(t *testing.T) {
+	var v invalidTagStruct
+	// encoding/json rejects "bad'name" as a tag name and uses the Go field
+	// name, so "Field" is known and "bad'name" is unknown.
+	data := `{"Field":"v","bad'name":"w"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["bad'name"]; !ok {
+		t.Errorf("invalid tag name should not be known, got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
+	}
+	if v.Field != "v" {
+		t.Errorf("decode wrong: got %+v", v)
 	}
 }
 

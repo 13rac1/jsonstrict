@@ -17,10 +17,11 @@
 // data from the JSON input. Callers should sanitize them before logging or
 // including in error responses.
 //
-// Note: encoding/json has complex rules for resolving conflicting field names
-// across embedded structs at the same depth (both fields are ignored). This
-// package does not replicate those rules — conflicting embedded fields are
-// treated as known. This is a rare edge case in practice.
+// Note: encoding/json resolves conflicting field names across embedded
+// structs by depth — shallower fields shadow deeper ones — which this package
+// follows. Its remaining rule (conflicts at the same depth cause both fields
+// to be ignored) is not replicated: same-depth conflicts are treated as
+// known. This is a rare edge case in practice.
 package jsonstrict
 
 import (
@@ -28,6 +29,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Result holds the field-level diagnostics from Unmarshal.
@@ -52,6 +54,11 @@ func (e *InvalidTargetError) Error() string {
 // missing from the input. Neither unknown nor missing fields cause an error —
 // only the normal json.Unmarshal error (if any) is returned.
 //
+// Missing means the key is absent from the JSON object: a key present with a
+// null value counts as present. Fields tagged omitempty or omitzero are never
+// reported as missing. A top-level JSON null input decodes as a no-op with no
+// error (matching encoding/json) and reports every required field as missing.
+//
 // v must be a non-nil pointer to a struct. A nil or non-pointer v returns a
 // *json.InvalidUnmarshalError, as encoding/json would; a non-nil pointer to
 // a non-struct returns an *InvalidTargetError.
@@ -73,18 +80,19 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	var result Result
 	var raw map[string]json.RawMessage
 	if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
-		required, optional := knownJSONKeys(rt)
+		known := knownJSONKeys(rt)
 		for key, val := range raw {
-			_, inRequired := required[key]
-			_, inOptional := optional[key]
-			if !inRequired && !inOptional {
+			if _, ok := known[key]; !ok {
 				if result.Unknown == nil {
 					result.Unknown = make(map[string]json.RawMessage)
 				}
 				result.Unknown[key] = val
 			}
 		}
-		for key := range required {
+		for key, info := range known {
+			if info.optional {
+				continue
+			}
 			if _, ok := raw[key]; !ok {
 				result.Missing = append(result.Missing, key)
 			}
@@ -95,23 +103,32 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	return result, json.Unmarshal(data, v)
 }
 
-// knownJSONKeys returns two sets of JSON field names declared by t's struct
-// tags: required fields and optional fields. Fields tagged with omitempty are
-// optional. Unexported and json:"-" fields are excluded. Untagged exported
-// fields fall back to the Go field name.
+// fieldInfo records how a known JSON key was declared, for conflict
+// resolution and missing detection.
+type fieldInfo struct {
+	optional bool // omitempty or omitzero: never reported missing
+	tagged   bool // name came from a json tag, not the Go field name
+	depth    int  // embedding depth; shallower shadows deeper
+}
+
+// knownJSONKeys returns the JSON field names declared by t's struct tags,
+// mapped to how each was declared. Fields tagged with omitempty or omitzero
+// are optional. Unexported and json:"-" fields are excluded. Untagged
+// exported fields fall back to the Go field name, as do fields whose tag
+// name encoding/json would reject as invalid.
 //
 // Anonymous (embedded) struct fields follow encoding/json rules: a json:"-"
 // tag excludes the embedded struct entirely, a tag name makes it a regular
 // named field, and only untagged embedded structs are flattened. Flattening
 // tracks visited types so self-referential embedding cannot recurse forever.
-func knownJSONKeys(t reflect.Type) (required, optional map[string]struct{}) {
-	required = make(map[string]struct{})
-	optional = make(map[string]struct{})
-	addKnownJSONKeys(t, required, optional, map[reflect.Type]bool{t: true})
-	return required, optional
+// Name conflicts resolve as encoding/json does — see shadows.
+func knownJSONKeys(t reflect.Type) map[string]fieldInfo {
+	fields := make(map[string]fieldInfo)
+	addKnownJSONKeys(t, fields, 0, map[reflect.Type]bool{t: true})
+	return fields
 }
 
-func addKnownJSONKeys(t reflect.Type, required, optional map[string]struct{}, visited map[reflect.Type]bool) {
+func addKnownJSONKeys(t reflect.Type, fields map[string]fieldInfo, depth int, visited map[reflect.Type]bool) {
 	for i := range t.NumField() {
 		field := t.Field(i)
 
@@ -120,6 +137,9 @@ func addKnownJSONKeys(t reflect.Type, required, optional map[string]struct{}, vi
 			continue
 		}
 		name, opts, _ := strings.Cut(tag, ",")
+		if !isValidTag(name) {
+			name = ""
+		}
 
 		if field.Anonymous && name == "" {
 			ft := field.Type
@@ -129,7 +149,7 @@ func addKnownJSONKeys(t reflect.Type, required, optional map[string]struct{}, vi
 			if ft.Kind() == reflect.Struct {
 				if !visited[ft] {
 					visited[ft] = true
-					addKnownJSONKeys(ft, required, optional, visited)
+					addKnownJSONKeys(ft, fields, depth+1, visited)
 				}
 				continue
 			}
@@ -139,13 +159,60 @@ func addKnownJSONKeys(t reflect.Type, required, optional map[string]struct{}, vi
 			continue
 		}
 
+		info := fieldInfo{
+			optional: tagOptContains(opts, "omitempty") || tagOptContains(opts, "omitzero"),
+			tagged:   name != "",
+			depth:    depth,
+		}
 		if name == "" {
 			name = field.Name
 		}
-		if strings.Contains(opts, "omitempty") {
-			optional[name] = struct{}{}
-		} else {
-			required[name] = struct{}{}
+		if existing, ok := fields[name]; ok && !shadows(info, existing) {
+			continue
+		}
+		fields[name] = info
+	}
+}
+
+// shadows reports whether candidate wins over existing for the same JSON
+// name, following encoding/json: shallower embedding depth wins, and at equal
+// depth a tagged field beats an untagged one. Remaining same-depth ties keep
+// the first field seen (encoding/json ignores both; see the package doc).
+func shadows(candidate, existing fieldInfo) bool {
+	if candidate.depth != existing.depth {
+		return candidate.depth < existing.depth
+	}
+	return candidate.tagged && !existing.tagged
+}
+
+// tagOptContains reports whether the comma-separated tag options contain opt,
+// matching whole options only, like encoding/json's tagOptions.Contains.
+func tagOptContains(opts, opt string) bool {
+	for opts != "" {
+		var o string
+		o, opts, _ = strings.Cut(opts, ",")
+		if o == opt {
+			return true
 		}
 	}
+	return false
+}
+
+// isValidTag mirrors encoding/json's tag-name validation: letters, digits,
+// and a limited set of punctuation. Names it rejects fall back to the Go
+// field name.
+func isValidTag(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", c):
+			// Backslash and quote chars are reserved, but otherwise any
+			// punctuation is fine.
+		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
+			return false
+		}
+	}
+	return true
 }
