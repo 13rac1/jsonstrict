@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/13rac1/jsonstrict"
 )
@@ -575,5 +576,356 @@ func TestUnmarshal_NonStructPointerReturnsError(t *testing.T) {
 	// *json.InvalidUnmarshalError rendered "json: Unmarshal(nil *int)").
 	if got, want := err.Error(), "jsonstrict: Unmarshal(non-struct *int)"; got != want {
 		t.Errorf("error message: got %q, want %q", got, want)
+	}
+}
+
+// --- Nested checking ---
+
+type nestedAddress struct {
+	Street string `json:"street"`
+	Zip    string `json:"zip"`
+}
+
+type nestedCustomer struct {
+	Name    string        `json:"name"`
+	Address nestedAddress `json:"address"`
+}
+
+type nestedPtrCustomer struct {
+	Name    string         `json:"name"`
+	Address *nestedAddress `json:"address"`
+}
+
+type nestedOptional struct {
+	Address nestedAddress `json:"address,omitempty"`
+}
+
+type deepLevel3 struct {
+	D string `json:"d"`
+}
+
+type deepLevel2 struct {
+	L3 deepLevel3 `json:"l3"`
+}
+
+type deepLevel1 struct {
+	L2 deepLevel2 `json:"l2"`
+}
+
+type sliceHolder struct {
+	Items []nestedAddress `json:"items"`
+}
+
+type ptrSliceHolder struct {
+	Items []*nestedAddress `json:"items"`
+}
+
+type arrayHolder struct {
+	Pair [2]nestedAddress `json:"pair"`
+}
+
+type gridHolder struct {
+	Grid [][]nestedAddress `json:"grid"`
+}
+
+type mapHolder struct {
+	Config map[string]nestedAddress `json:"config"`
+}
+
+type timeHolder struct {
+	Created time.Time `json:"created"`
+	Name    string    `json:"name"`
+}
+
+type rawHolder struct {
+	Raw  json.RawMessage `json:"raw"`
+	Name string          `json:"name"`
+}
+
+type anyHolder struct {
+	Meta map[string]any `json:"meta"`
+	Free any            `json:"free"`
+}
+
+type nestedEmbedHolder struct {
+	Wrapped embeddedParent `json:"wrapped"`
+}
+
+// opaqueTarget implements json.Unmarshaler; its JSON shape is unrelated to
+// its Go fields, so it must never be recursed into.
+type opaqueTarget struct {
+	Sum int
+}
+
+func (o *opaqueTarget) UnmarshalJSON(b []byte) error {
+	o.Sum = len(b)
+	return nil
+}
+
+type opaqueHolder struct {
+	Opaque opaqueTarget `json:"opaque"`
+}
+
+func TestUnmarshal_NestedUnknownAndMissing(t *testing.T) {
+	var v nestedCustomer
+	data := `{"name":"alice","address":{"street":"1 Main St","zipp":"90210"}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 1 {
+		t.Fatalf("expected 1 unknown field, got %v", result.Unknown)
+	}
+	if string(result.Unknown["address.zipp"]) != `"90210"` {
+		t.Errorf("expected unknown address.zipp with raw value, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"address.zip"}) {
+		t.Errorf("expected [address.zip] missing, got %v", result.Missing)
+	}
+	if v.Name != "alice" || v.Address.Street != "1 Main St" {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_NestedPointerStruct(t *testing.T) {
+	var v nestedPtrCustomer
+	data := `{"name":"alice","address":{"street":"s","zipp":"z"}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["address.zipp"]; !ok {
+		t.Errorf("expected unknown address.zipp, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"address.zip"}) {
+		t.Errorf("expected [address.zip] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_MissingNestedObjectReportedShallow(t *testing.T) {
+	var v nestedCustomer
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only the absent object itself, not every path beneath it.
+	if !slices.Equal(result.Missing, []string{"address", "name"}) {
+		t.Errorf("expected [address name] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_DeeplyNested(t *testing.T) {
+	var v deepLevel1
+	data := `{"l2":{"l3":{"x":1}}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["l2.l3.x"]; !ok {
+		t.Errorf("expected unknown l2.l3.x, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"l2.l3.d"}) {
+		t.Errorf("expected [l2.l3.d] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_NestedNullNotRecursed(t *testing.T) {
+	var v nestedCustomer
+	data := `{"name":"a","address":null}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("null nested value must not be recursed, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+}
+
+func TestUnmarshal_NestedWrongTypeNotRecursed(t *testing.T) {
+	var v nestedCustomer
+	data := `{"name":"a","address":"not an object"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err == nil {
+		t.Fatal("expected decode error for wrong-shaped nested value")
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("shape mismatch must surface as the decode error, not diagnostics; got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+}
+
+func TestUnmarshal_SliceOfStructs(t *testing.T) {
+	var v sliceHolder
+	data := `{"items":[{"street":"a","zip":"1"},{"street":"b","extra":true}]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result.Unknown["items[1].extra"]) != "true" {
+		t.Errorf("expected unknown items[1].extra, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"items[1].zip"}) {
+		t.Errorf("expected [items[1].zip] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_SliceOfPointerStructs(t *testing.T) {
+	var v ptrSliceHolder
+	data := `{"items":[{"street":"a"}]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Missing, []string{"items[0].zip"}) {
+		t.Errorf("expected [items[0].zip] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_ArrayOfStructs(t *testing.T) {
+	var v arrayHolder
+	data := `{"pair":[{"street":"a","zip":"1"},{"street":"b","bogus":0}]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["pair[1].bogus"]; !ok {
+		t.Errorf("expected unknown pair[1].bogus, got %v", result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{"pair[1].zip"}) {
+		t.Errorf("expected [pair[1].zip] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_NestedSliceOfSlices(t *testing.T) {
+	var v gridHolder
+	data := `{"grid":[[{"street":"a","zip":"1"}],[{"street":"b","zip":"2"},{"street":"c"}]]}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(result.Missing, []string{"grid[1][1].zip"}) {
+		t.Errorf("expected [grid[1][1].zip] missing, got %v", result.Missing)
+	}
+}
+
+func TestUnmarshal_MapOfStructs(t *testing.T) {
+	var v mapHolder
+	data := `{"config":{"dev":{"street":"s","debug":true},"a.b":{"street":"t","zip":"z"}}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Map keys are quoted in paths, so keys containing dots stay unambiguous.
+	if string(result.Unknown[`config["dev"].debug`]) != "true" {
+		t.Errorf(`expected unknown config["dev"].debug, got %v`, result.Unknown)
+	}
+	if !slices.Equal(result.Missing, []string{`config["dev"].zip`}) {
+		t.Errorf(`expected [config["dev"].zip] missing, got %v`, result.Missing)
+	}
+}
+
+func TestUnmarshal_JSONUnmarshalerOpaque(t *testing.T) {
+	var v opaqueHolder
+	// opaqueTarget decodes itself; whatever shape its JSON takes, its
+	// interior must produce no diagnostics.
+	data := `{"opaque":{"anything":1,"goes":[true]}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("json.Unmarshaler types must be opaque, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+	if v.Opaque.Sum == 0 {
+		t.Errorf("custom unmarshaler not invoked: %+v", v)
+	}
+}
+
+func TestUnmarshal_TimeFieldOpaque(t *testing.T) {
+	var v timeHolder
+	data := `{"created":"2026-07-02T10:00:00Z","name":"a"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("time.Time must be opaque, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+	if v.Created.IsZero() {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_RawMessageOpaque(t *testing.T) {
+	var v rawHolder
+	data := `{"raw":{"any":{"thing":1}},"name":"a"}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("json.RawMessage must be opaque, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+	if string(v.Raw) != `{"any":{"thing":1}}` {
+		t.Errorf("decode wrong: got %s", v.Raw)
+	}
+}
+
+func TestUnmarshal_InterfaceFieldsNotRecursed(t *testing.T) {
+	var v anyHolder
+	data := `{"meta":{"a":{"b":1}},"free":{"c":2}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 0 || len(result.Missing) != 0 {
+		t.Errorf("interface-typed fields have no schema, got unknown=%v missing=%v",
+			result.Unknown, result.Missing)
+	}
+}
+
+func TestUnmarshal_NestedEmbedded(t *testing.T) {
+	var v nestedEmbedHolder
+	data := `{"wrapped":{"inner_field":"i","outer":"o","bogus":1}}`
+	result, err := jsonstrict.Unmarshal([]byte(data), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Unknown) != 1 {
+		t.Fatalf("expected 1 unknown field, got %v", result.Unknown)
+	}
+	if _, ok := result.Unknown["wrapped.bogus"]; !ok {
+		t.Errorf("expected unknown wrapped.bogus, got %v", result.Unknown)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("expected no missing fields, got %v", result.Missing)
+	}
+	if v.Wrapped.InnerField != "i" || v.Wrapped.Outer != "o" {
+		t.Errorf("decode wrong: got %+v", v)
+	}
+}
+
+func TestUnmarshal_OptionalNestedStillChecked(t *testing.T) {
+	var v nestedOptional
+	// An optional nested object is never missing, but when present its
+	// interior is still checked.
+	result, err := jsonstrict.Unmarshal([]byte(`{}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Missing) != 0 {
+		t.Errorf("optional nested object should not be missing, got %v", result.Missing)
+	}
+
+	result, err = jsonstrict.Unmarshal([]byte(`{"address":{"street":"s","zip":"z","x":1}}`), &v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.Unknown["address.x"]; !ok {
+		t.Errorf("expected unknown address.x, got %v", result.Unknown)
 	}
 }

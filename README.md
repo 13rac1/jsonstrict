@@ -31,6 +31,18 @@ if len(result.Missing) > 0 {
 `result.Unknown` is a `map[string]json.RawMessage` — each unknown field's raw
 JSON value is preserved for inspection or further decoding.
 
+Checking is recursive: nested structs, slices, arrays, and maps of structs
+are inspected too. Paths use dots for object fields, `[i]` for slice and
+array elements, and quoted keys for map values:
+
+```
+unknown: address.zipp, items[0].legacy_id, config["dev"].debug
+missing: address.zip, items[1].name
+```
+
+Types that implement `json.Unmarshaler` (such as `time.Time`) decode
+themselves, so they are treated as opaque and never recursed into.
+
 Fields tagged with `omitempty` or `omitzero` are not reported as missing.
 A key present with a JSON `null` value counts as present, not missing.
 

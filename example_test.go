@@ -54,6 +54,34 @@ func ExampleUnmarshal_unknownFields() {
 	// unknown role: "admin"
 }
 
+type Shipping struct {
+	Street string `json:"street"`
+	Zip    string `json:"zip"`
+}
+
+type Order struct {
+	ID       string   `json:"id"`
+	Shipping Shipping `json:"shipping"`
+}
+
+func ExampleUnmarshal_nested() {
+	data := []byte(`{"id":"o-1","shipping":{"street":"1 Main St","zipp":"90210"}}`)
+
+	var order Order
+	result, err := jsonstrict.Unmarshal(data, &order)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	for path, raw := range result.Unknown {
+		fmt.Printf("unknown %s: %s\n", path, raw)
+	}
+	fmt.Println("missing:", result.Missing)
+	// Output:
+	// unknown shipping.zipp: "90210"
+	// missing: [shipping.zip]
+}
+
 func ExampleUnmarshal_missingFields() {
 	data := []byte(`{"name":"alice"}`)
 

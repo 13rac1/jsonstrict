@@ -5,6 +5,16 @@
 // report absent ones. This package returns both alongside the decoded value,
 // letting callers decide how to handle unexpected or incomplete data.
 //
+// Checking is recursive. Fields of struct, pointer, slice, array, and map
+// types are walked when the JSON value has the matching shape, and
+// diagnostics report paths: object fields join with dots (address.zip),
+// slice and array elements use an index (items[0].name), and map values use
+// a quoted key (config["dev"].host). Types implementing json.Unmarshaler,
+// such as time.Time, decode themselves, so they are treated as opaque and
+// never recursed into; the same goes for interface-typed fields, which have
+// no schema. Null values are never recursed into, and a missing nested
+// object is reported by its own path only, not by every path beneath it.
+//
 // If you only need to reject unknown fields without knowing which ones,
 // use json.Decoder.DisallowUnknownFields from the standard library instead.
 //
@@ -28,14 +38,19 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
 // Result holds the field-level diagnostics from Unmarshal.
 type Result struct {
-	Unknown map[string]json.RawMessage // unknown JSON keys → raw values
-	Missing []string                   // struct fields not present in JSON, sorted
+	// Unknown maps the path of each unknown JSON key to its raw value.
+	// It is nil when there are no unknown fields.
+	Unknown map[string]json.RawMessage
+	// Missing lists the paths of required struct fields absent from the
+	// JSON, sorted lexicographically.
+	Missing []string
 }
 
 // InvalidTargetError describes an invalid target passed to Unmarshal: a
@@ -63,10 +78,11 @@ func (e *InvalidTargetError) Error() string {
 // *json.InvalidUnmarshalError, as encoding/json would; a non-nil pointer to
 // a non-struct returns an *InvalidTargetError.
 //
-// The data is parsed twice: once into a raw map to identify unknown and
-// missing keys, then into v for the actual decode. encoding/json provides
-// no hook to intercept unknown fields without erroring, so the double pass
-// is intentional. Callers processing large payloads should bound input size.
+// The data is parsed twice: once into raw form to identify unknown and
+// missing keys (nested containers are re-parsed as they are walked), then
+// into v for the actual decode. encoding/json provides no hook to intercept
+// unknown fields without erroring, so the double pass is intentional.
+// Callers processing large payloads should bound input size.
 func Unmarshal(data []byte, v any) (Result, error) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
@@ -80,35 +96,88 @@ func Unmarshal(data []byte, v any) (Result, error) {
 	var result Result
 	var raw map[string]json.RawMessage
 	if jsonErr := json.Unmarshal(data, &raw); jsonErr == nil {
-		known := knownJSONKeys(rt)
-		for key, val := range raw {
-			if _, ok := known[key]; !ok {
-				if result.Unknown == nil {
-					result.Unknown = make(map[string]json.RawMessage)
-				}
-				result.Unknown[key] = val
-			}
-		}
-		for key, info := range known {
-			if info.optional {
-				continue
-			}
-			if _, ok := raw[key]; !ok {
-				result.Missing = append(result.Missing, key)
-			}
-		}
+		checkStruct(rt, raw, "", &result)
 		sort.Strings(result.Missing)
 	}
 
 	return result, json.Unmarshal(data, v)
 }
 
+// checkStruct records unknown keys in raw and missing required fields of t.
+// prefix is empty at the root, or the parent path including a trailing dot.
+func checkStruct(t reflect.Type, raw map[string]json.RawMessage, prefix string, result *Result) {
+	known := knownJSONKeys(t)
+	for key, val := range raw {
+		info, ok := known[key]
+		if !ok {
+			if result.Unknown == nil {
+				result.Unknown = make(map[string]json.RawMessage)
+			}
+			result.Unknown[prefix+key] = val
+			continue
+		}
+		checkValue(info.typ, val, prefix+key, result)
+	}
+	for key, info := range known {
+		if info.optional {
+			continue
+		}
+		if _, ok := raw[key]; !ok {
+			result.Missing = append(result.Missing, prefix+key)
+		}
+	}
+}
+
+// checkValue recurses into a known field's value when its Go type has an
+// inspectable schema and the JSON value has the matching shape. Types
+// implementing json.Unmarshaler decode themselves, so they are opaque.
+// Values that fail to parse as the expected shape (including null) are
+// skipped — a shape mismatch surfaces as the decode error from
+// encoding/json, not as diagnostics.
+func checkValue(t reflect.Type, val json.RawMessage, path string, result *Result) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if reflect.PointerTo(t).Implements(jsonUnmarshalerType) {
+		return
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(val, &raw); err != nil || raw == nil {
+			return
+		}
+		checkStruct(t, raw, path+".", result)
+	case reflect.Slice, reflect.Array:
+		var elems []json.RawMessage
+		if err := json.Unmarshal(val, &elems); err != nil {
+			return
+		}
+		for i, e := range elems {
+			checkValue(t.Elem(), e, path+"["+strconv.Itoa(i)+"]", result)
+		}
+	case reflect.Map:
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(val, &m); err != nil {
+			return
+		}
+		for k, e := range m {
+			checkValue(t.Elem(), e, path+"["+strconv.Quote(k)+"]", result)
+		}
+	default:
+		// Scalars and interfaces have no schema to inspect.
+	}
+}
+
+var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
 // fieldInfo records how a known JSON key was declared, for conflict
 // resolution and missing detection.
 type fieldInfo struct {
-	optional bool // omitempty or omitzero: never reported missing
-	tagged   bool // name came from a json tag, not the Go field name
-	depth    int  // embedding depth; shallower shadows deeper
+	typ      reflect.Type // field type, for recursing into nested values
+	optional bool         // omitempty or omitzero: never reported missing
+	tagged   bool         // name came from a json tag, not the Go field name
+	depth    int          // embedding depth; shallower shadows deeper
 }
 
 // knownJSONKeys returns the JSON field names declared by t's struct tags,
@@ -160,6 +229,7 @@ func addKnownJSONKeys(t reflect.Type, fields map[string]fieldInfo, depth int, vi
 		}
 
 		info := fieldInfo{
+			typ:      field.Type,
 			optional: tagOptContains(opts, "omitempty") || tagOptContains(opts, "omitzero"),
 			tagged:   name != "",
 			depth:    depth,
